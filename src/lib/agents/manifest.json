@@ -1,0 +1,34 @@
+{
+  "dependencies": {
+    "Planner": {
+      "inputs": ["Queen.domain", "Queen.goal", "Queen.primaryEntities", "Queen.relationships", "Queen.constraints", "Queen.agentTasks"]
+    },
+    "Architect": {
+      "inputs": ["Planner.features", "Planner.requirements", "Queen.constraints"]
+    },
+    "System": {
+      "inputs": ["Planner.requirements", "Planner.vocabulary", "Architect.modules"]
+    },
+    "Designer": {
+      "inputs": ["Planner.requirements", "Architect.modules", "System.entities"]
+    },
+    "DesignReviewer": {
+      "inputs": ["Planner.requirements", "Architect.modules", "System.entities", "Designer.components", "Designer.navigationMap", "Designer.entityToViewMapping"]
+    },
+    "Blueprinter": {
+      "inputs": ["Planner.requirements", "Architect.modules", "System.entities", "Designer.components", "Designer.styleTokens"]
+    },
+    "Tester": {
+      "inputs": ["Queen.goal", "Queen.constraints", "Architect.modules", "System.entities"]
+    },
+    "Debugger": {
+      "inputs": ["Queen.goal", "Tester.failureReport"]
+    },
+    "Security": {
+      "inputs": ["Queen.goal", "System.entities", "System.endpoints"]
+    },
+    "Reviewer": {
+      "inputs": ["Queen.goal", "Security.securityReport"]
+    }
+  }
+}

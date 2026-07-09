@@ -1,0 +1,9 @@
+{
+  "provider": "ollama",
+  "ollamaHost": "http://localhost:11434",
+  "ollamaModel": "qwen2.5-coder:3b",
+  "openaiApiKey": "",
+  "openaiModel": "gpt-4o-mini",
+  "anthropicApiKey": "",
+  "anthropicModel": "claude-3-5-sonnet-20241022"
+}

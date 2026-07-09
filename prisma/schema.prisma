@@ -1,0 +1,54 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Conversation {
+  id           String             @id @default(uuid())
+  title        String
+  status       String             // "Active", "Completed", "Paused"
+  currentStage String             // "Queen", "Planner", etc.
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  outputs      AgentOutput[]
+  history      ExecutionHistory[]
+}
+
+model AgentOutput {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agentName      String
+  stage          String
+  schemaVersion  String
+  model          String
+  validatedJson  String       // Store stringified JSON
+  executionTime  Int          // in ms
+  tokenUsage     Int
+  attempt        Int
+  createdAt      DateTime     @default(now())
+  indexes        AgentIndex[]
+}
+
+model AgentIndex {
+  id             String      @id @default(uuid())
+  conversationId String
+  outputId       String
+  output         AgentOutput @relation(fields: [outputId], references: [id], onDelete: Cascade)
+  path           String      // e.g. "Planner.features"
+  value          String      // Stringified JSON value
+  createdAt      DateTime    @default(now())
+}
+
+model ExecutionHistory {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  stage          String
+  status         String       // "Success", "Failed", "Retrying"
+  logs           String       // Stringified array of logs or raw text logs
+  createdAt      DateTime     @default(now())
+}
