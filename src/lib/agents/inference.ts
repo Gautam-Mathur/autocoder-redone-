@@ -462,6 +462,7 @@ export async function runInference(
       messages: messages,
       options: {
         temperature: temp,
+        num_ctx: 32768, // Request 32K context window to fit large specs and file histories
       },
       stream: false,
     };
