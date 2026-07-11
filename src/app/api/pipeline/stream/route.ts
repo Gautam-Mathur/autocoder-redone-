@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       try {
         await runOrchestrator(conversationId, userPrompt, (event) => {
           sendEvent(event);
-        });
+        }, request.signal);
       } catch (err: any) {
         sendEvent({
           type: 'PIPELINE_ERROR',

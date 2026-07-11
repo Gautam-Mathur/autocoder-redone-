@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const conversation = await prisma.conversation.create({
       data: {
         title: title || 'New Autocoder Project',
-        status: 'Active',
+        status: 'Idle',
         currentStage: 'Queen',
       },
     });

@@ -57,13 +57,13 @@ async function runUAT() {
     },
   });
 
-  // 4. Execute Pass 2: System -> ... -> Refiner (Synthesis & Compilation phases)
-  console.log('\n[4/5] Initiating Pass 2 execution loop (System -> ... -> Refiner)...');
+  // 4. Execute Pass 2: System -> ... -> Reviewer (Synthesis & Compilation phases)
+  console.log('\n[4/5] Initiating Pass 2 execution loop (System -> ... -> Reviewer)...');
   await runOrchestrator(conversationId, 'Build a to-do list application with React', captureEvent);
 
   // Verify final status is Completed
   updatedConv = await prisma.conversation.findUnique({ where: { id: conversationId } });
-  if (!updatedConv || updatedConv.status !== 'Completed' || updatedConv.currentStage !== 'Refiner') {
+  if (!updatedConv || updatedConv.status !== 'Completed' || updatedConv.currentStage !== 'Reviewer') {
     throw new Error(`UAT Failed: Pipeline did not complete all stages. Current status: ${updatedConv?.status}, Stage: ${updatedConv?.currentStage}`);
   }
   console.log('Successfully completed Pass 2! Pipeline status is: Completed.');
@@ -100,7 +100,7 @@ async function runUAT() {
 
   console.log('----------------------------------------------------');
   console.log('🟢 UAT CHECK PASSED SUCCESSFULLY!');
-  console.log('All 13 multi-agent compiler stages executed, logged,');
+  console.log('All 11 multi-agent compiler stages executed, logged,');
   console.log('validated, and persisted to DB/disk without errors.');
   console.log('----------------------------------------------------');
 }

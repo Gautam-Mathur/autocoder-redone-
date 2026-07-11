@@ -15,6 +15,7 @@ import {
   FolderOpen,
   Paperclip,
   Database,
+  Trash2,
 } from 'lucide-react';
 
 interface Conversation {
@@ -273,16 +274,38 @@ export default function LandingDashboard() {
                       </div>
                     </div>
 
-                    <span className={`px-2 py-0.5 border text-[10px] font-bold rounded flex items-center gap-1 ${
-                      isActive ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' :
-                      isPaused ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
-                      'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                    }`}>
-                      {isActive && <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />}
-                      {isPaused && <HelpCircle className="w-3 h-3" />}
-                      {isCompleted && <CheckCircle2 className="w-3 h-3" />}
-                      {pipe.currentStage} ({pipe.status})
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 border text-[10px] font-bold rounded flex items-center gap-1 ${
+                        isActive ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' :
+                        isPaused ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+                        'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                      }`}>
+                        {isActive && <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />}
+                        {isPaused && <HelpCircle className="w-3 h-3" />}
+                        {isCompleted && <CheckCircle2 className="w-3 h-3" />}
+                        {pipe.currentStage} ({pipe.status})
+                      </span>
+
+                      <button
+                        title="Delete Project"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (confirm(`Are you sure you want to delete "${pipe.title}" and all its compiled files?`)) {
+                            try {
+                              const res = await fetch(`/api/conversations/${pipe.id}`, { method: 'DELETE' });
+                              if (res.ok) {
+                                fetchPipelines();
+                              }
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }
+                        }}
+                        className="text-slate-400 hover:text-rose-400 p-1 rounded transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="bg-slate-950 border border-slate-800 rounded p-2 text-[11px] font-mono text-slate-400">

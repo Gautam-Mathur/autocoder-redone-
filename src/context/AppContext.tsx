@@ -21,10 +21,15 @@ interface AppContextType {
   setActiveModel: (model: string) => Promise<void>;
   checkOllama: () => Promise<boolean>;
   logs: LogMessage[];
+  setLogs: (logs: LogMessage[]) => void;
   clearLogs: () => void;
   addLog: (log: Omit<LogMessage, 'timestamp'>) => void;
   activePrompt: string;
   setActivePrompt: (prompt: string) => void;
+  currentStage: string;
+  setCurrentStage: (stage: string) => void;
+  pipelineStatus: string;
+  setPipelineStatus: (status: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -37,6 +42,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeModel, setActiveModel] = useState<string>('');
   const [logs, setLogs] = useState<LogMessage[]>([]);
   const [activePrompt, setActivePrompt] = useState<string>('');
+  const [currentStage, setCurrentStage] = useState<string>('Queen');
+  const [pipelineStatus, setPipelineStatus] = useState<string>('Idle');
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -129,10 +136,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setActiveModel: handleSetActiveModel,
         checkOllama,
         logs,
+        setLogs,
         clearLogs,
         addLog,
         activePrompt,
         setActivePrompt,
+        currentStage,
+        setCurrentStage,
+        pipelineStatus,
+        setPipelineStatus,
       }}
     >
       {children}

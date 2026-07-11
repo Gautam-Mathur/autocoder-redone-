@@ -8,6 +8,9 @@ interface Message {
 interface InferenceOptions {
   temperature?: number;
   format?: 'json' | 'text';
+  maxTokens?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 import fs from 'fs';
@@ -81,88 +84,237 @@ export async function runInference(
 ): Promise<string> {
   if (process.env.MOCK_INFERENCE === 'true') {
     const sysPrompt = messages.find(m => m.role === 'system')?.content || '';
-    if (sysPrompt.includes('Queen Orchestrator')) {
+    if (sysPrompt.includes('You are the Queen Agent')) {
       return JSON.stringify({
-        domain: "Todo App",
-        goal: "Manage items",
-        primaryEntities: ["Task"],
-        relationships: ["User has many Tasks"],
-        constraints: [],
-        agentTasks: {},
-        needsClarification: false,
-        clarificationQuestions: [],
-        readinessScore: 0.95
+        contextType: "canonical",
+        mvpId: "MVP-001",
+        projectName: "Todo App",
+        problemStatement: "Manage tasks efficiently",
+        projectDescription: "A robust task list app",
+        projectGoal: "Provide CRUD operations for tasks",
+        mvpScope: {
+          included: ["Add Task", "Delete Task", "View Tasks"],
+          excluded: ["Collaborative editing", "Push notifications"]
+        },
+        constraints: ["SQLite only", "Local execution"],
+        risks: ["Data corruption if disk full"],
+        agentInstructions: {
+          planner: "Map tasks",
+          architect: "Design structure",
+          system: "Design DB tables",
+          designer: "Create layout",
+          reviewer: "Review specs",
+          coder: "Write code",
+          tester: "Write tests",
+          debugger: "Debug errors",
+          security: "Audit vulnerabilities",
+          refiner: "Refine output"
+        }
       });
     }
-    if (sysPrompt.includes('Requirements Engineer')) {
+    if (sysPrompt.includes('You are the Planner Agent')) {
       return JSON.stringify({
-        vocabulary: ["Task"],
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
+        recommendedTechStack: {
+          frontend: "react",
+          backend: "express",
+          database: "sqlite",
+          authentication: "none",
+          deployment: "local",
+          additionalTechnologies: []
+        },
         features: [
           {
-            id: "F001",
+            id: "Feature-001",
+            mvpReference: "MVP-001",
             name: "Add Task",
-            goal: "Allow users to add task items",
-            acceptanceCriteria: ["User can type task and add it"]
+            description: "User can type task and add it",
+            priority: "Critical"
           }
         ],
-        requirements: {
-          whatExists: "Tasks exist",
-          whatUsersCanDo: "Add tasks",
-          whoCanDoIt: "All users",
-          whatIsForbidden: "Empty tasks",
-          failureHandling: "Show error dialog"
+        functionalRequirements: ["Support adding tasks"],
+        nonFunctionalRequirements: {
+          security: ["None"],
+          performance: ["Fast response"],
+          scalability: ["Single user scale"],
+          usability: ["Simple input"],
+          maintainability: ["Clean components"],
+          accessibility: ["Accessible elements"],
+          reliability: ["Local storage persist"]
+        },
+        deliverables: ["TodoPage component"],
+        agentInstructions: {
+          architect: "Map TodoPage",
+          system: "Design task schema",
+          designer: "Map UI props",
+          coder: "Synthesize page",
+          tester: "Verify tasks add",
+          debugger: "Fix index errors",
+          security: "Sanitize inputs"
         }
       });
     }
-    if (sysPrompt.includes('Architect in a strict')) {
+    if (sysPrompt.includes('You are the Architect Agent')) {
       return JSON.stringify({
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
+        architectureStyle: "layered",
+        projectStructure: {
+          root: "src",
+          directories: ["pages", "components"],
+          files: [
+            { path: "src/pages/TodoPage.tsx", module: "Module-001" },
+            { path: "src/components/TodoItem.tsx", module: "Module-001" }
+          ]
+        },
         modules: [
           {
+            id: "Module-001",
             name: "TodoModule",
-            featureId: "F001",
-            pages: ["src/pages/TodoPage.tsx"],
-            components: ["src/components/TodoItem.tsx"],
-            services: ["src/services/TodoService.ts"],
-            apis: ["src/routes/todos.ts"]
+            purpose: "CRUD for tasks",
+            supportsFeatures: ["Feature-001"],
+            directories: ["src/pages", "src/components"],
+            files: ["src/pages/TodoPage.tsx", "src/components/TodoItem.tsx"],
+            dependsOn: [],
+            usedBy: []
           }
         ],
-        techStack: ["react", "typescript", "vite"]
-      });
-    }
-    if (sysPrompt.includes('System Engineer in a')) {
-      return JSON.stringify({
-        entities: [
-          {
-            name: "Task",
-            fields: [
-              { name: "id", type: "string", required: true },
-              { name: "title", type: "string", required: true }
-            ]
-          }
-        ],
-        businessRules: ["Title cannot be empty"],
-        services: ["TodoService"],
-        endpoints: ["POST /api/todos"]
-      });
-    }
-    if (sysPrompt.includes('UI/UX Designer in a')) {
-      return JSON.stringify({
-        navigationMap: ["/todos"],
-        entityToViewMapping: { "Task": "TodoItem" },
-        uxFlows: ["User visits /todos to view tasks"],
-        components: [
-          { "name": "TodoItem", "props": ["task"], "consumes": "Task" }
-        ],
-        styleTokens: {
-          colors: { "primary": "#6366f1" },
-          spacing: { "md": "16px" },
-          typography: { "body": "Inter" }
+        sharedResources: {
+          configuration: [],
+          constants: [],
+          types: [],
+          utilities: [],
+          middleware: [],
+          assets: [],
+          environment: [],
+          others: []
+        },
+        projectConventions: {
+          namingConvention: "camelCase",
+          folderConvention: "lowercase",
+          codingConvention: "standard",
+          importConvention: "absolute"
         }
       });
     }
-    if (sysPrompt.includes('Design Reviewer in a')) {
+    if (sysPrompt.includes('You are the System Agent')) {
       return JSON.stringify({
-        issues: []
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
+        database: {
+          type: "sqlite",
+          entities: [
+            {
+              id: "Entity-001",
+              name: "Task",
+              purpose: "Stores todo items",
+              fields: ["id: string", "title: string"],
+              relationships: [],
+              indexes: [],
+              constraints: []
+            }
+          ]
+        },
+        apis: [
+          {
+            id: "API-001",
+            name: "addTodo",
+            method: "POST",
+            route: "/api/todos",
+            purpose: "Creates tasks",
+            featureId: "Feature-001",
+            request: {},
+            response: {},
+            middleware: []
+          }
+        ],
+        routing: {
+          routerStructure: [
+            { apiId: "API-001", path: "/api/todos" }
+          ],
+          routeGroups: []
+        },
+        middleware: [],
+        services: [
+          { id: "Service-001", name: "TodoService", purpose: "Handles tasks persistence", usedByApis: ["API-001"] }
+        ],
+        configuration: {
+          environmentVariables: [],
+          storage: [],
+          cache: [],
+          externalServices: [],
+          authentication: [],
+          authorization: [],
+          others: []
+        },
+        backendRules: {
+          validationRules: [],
+          businessRules: [],
+          errorHandling: [],
+          securityPolicies: []
+        }
+      });
+    }
+    if (sysPrompt.includes('You are the Designer Agent')) {
+      return JSON.stringify({
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
+        designPhilosophy: {
+          theme: "dark",
+          designPrinciples: ["Simple", "Clean"],
+          targetExperience: "Smooth task additions",
+          brandingGuidelines: []
+        },
+        navigation: {
+          primaryNavigation: [],
+          secondaryNavigation: [],
+          userFlows: []
+        },
+        pages: [
+          {
+            id: "Page-Login",
+            name: "TodoPage",
+            purpose: "Manage tasks layout",
+            layout: "standard",
+            supportsFeature: "Feature-001",
+            components: ["Component-001"]
+          }
+        ],
+        components: [
+          {
+            id: "Component-001",
+            name: "TodoItem",
+            purpose: "List task line view",
+            pageId: "Page-Login",
+            variants: [],
+            states: []
+          }
+        ],
+        designSystem: {
+          colors: ["bg-slate-900"],
+          typography: [],
+          spacing: [],
+          icons: [],
+          animations: [],
+          responsiveBreakpoints: [],
+          elevation: [],
+          borders: []
+        },
+        accessibility: {
+          standards: [],
+          requirements: []
+        },
+        interactionGuidelines: {
+          feedback: [],
+          transitions: [],
+          errorStates: [],
+          loadingStates: []
+        }
       });
     }
     if (sysPrompt.includes('Blueprinter in a strict')) {
@@ -183,27 +335,96 @@ export async function runInference(
         ]
       });
     }
-    if (sysPrompt.includes('Implementation Coder in a')) {
+    if (sysPrompt.includes('You are the Coder Agent')) {
       return JSON.stringify({
-        code: "export function TodoPage() { return <div>Todo Page</div>; }"
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
+        generatedFiles: [
+          {
+            path: "src/pages/TodoPage.tsx",
+            architectFileId: "src/pages/TodoPage.tsx",
+            module: "Module-001",
+            implementsFeatures: ["Feature-001"],
+            type: "page",
+            language: "tsx",
+            content: "export function TodoPage() { return <div>Todo Page</div>; }"
+          }
+        ],
+        generationSummary: {
+          filesGenerated: 1,
+          filesSkipped: [],
+          conflicts: [],
+          warnings: [],
+          status: "Success"
+        }
       });
     }
-    if (sysPrompt.includes('Tester agent in a')) {
+    if (sysPrompt.includes('You are the Tester Agent')) {
       return JSON.stringify({
-        testFiles: { "src/__tests__/TodoPage.test.tsx": "describe('TodoPage', () => {})" },
-        failureReport: []
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
+        generatedTestFiles: [
+          {
+            id: "Test-001",
+            path: "src/__tests__/TodoPage.test.tsx",
+            targetFile: "src/pages/TodoPage.tsx",
+            coversFeature: "Feature-001",
+            type: "unit",
+            language: "tsx",
+            content: "describe('TodoPage', () => {})"
+          }
+        ],
+        testReport: {
+          summary: {
+            totalTests: 1,
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            coverage: "100%",
+            coveredFeatures: ["Feature-001"],
+            missingFeatures: []
+          },
+          defects: [],
+          warnings: [],
+          status: "Success"
+        }
       });
     }
-    if (sysPrompt.includes('Debugger agent in a')) {
+    if (sysPrompt.includes('You are the Debugger Agent')) {
       return JSON.stringify({
-        repairDiffs: []
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
+        debugReport: {
+          issues: [],
+          summary: {
+            issuesDetected: 0,
+            issuesResolved: 0,
+            remainingIssues: 0
+          },
+          warnings: [],
+          status: "Success"
+        }
       });
     }
-    if (sysPrompt.includes('Security agent in a')) {
+    if (sysPrompt.includes('You are the Security Agent')) {
       return JSON.stringify({
+        contextType: "canonical",
+        projectName: "Todo App",
+        mvpReference: "MVP-001",
         securityReport: {
           issues: [],
-          scannedAt: Date.now()
+          summary: {
+            critical: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+            informational: 0
+          },
+          warnings: [],
+          status: "Success"
         }
       });
     }
@@ -213,19 +434,21 @@ export async function runInference(
         annotations: []
       });
     }
-    if (sysPrompt.includes('Refiner agent in a')) {
-      return JSON.stringify({
-        scoreBefore: 95,
-        scoreExpected: 98,
-        optimizations: []
-      });
-    }
     throw new Error(`UAT Mock Inference: unknown agent prompt matching: ${sysPrompt.slice(0, 100)}`);
   }
 
   const config = await getLLMConfig();
   const temp = options.temperature ?? 0.2;
   const isJson = options.format === 'json';
+
+  // Combine client abort signal with timeout signal
+  let combinedSignal: AbortSignal | undefined = undefined;
+  if (options.timeoutMs) {
+    const timeoutSignal = AbortSignal.timeout(options.timeoutMs);
+    combinedSignal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+  } else if (options.signal) {
+    combinedSignal = options.signal;
+  }
 
   if (config.provider === 'ollama') {
     const host = config.ollamaHost;
@@ -243,6 +466,10 @@ export async function runInference(
       stream: false,
     };
 
+    if (options.maxTokens) {
+      payload.options.num_predict = options.maxTokens;
+    }
+
     if (isJson) {
       payload.format = 'json';
     }
@@ -252,6 +479,7 @@ export async function runInference(
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
       body: JSON.stringify(payload),
+      signal: combinedSignal,
     });
 
     if (!res.ok) {
@@ -272,6 +500,10 @@ export async function runInference(
       temperature: temp,
     };
 
+    if (options.maxTokens) {
+      payload.max_tokens = options.maxTokens;
+    }
+
     if (isJson) {
       payload.response_format = { type: 'json_object' };
     }
@@ -283,6 +515,7 @@ export async function runInference(
         Authorization: `Bearer ${config.openaiApiKey}`,
       },
       body: JSON.stringify(payload),
+      signal: combinedSignal,
     });
 
     if (!res.ok) {
@@ -307,7 +540,7 @@ export async function runInference(
         role: m.role === 'assistant' ? 'assistant' : 'user',
         content: m.content,
       })),
-      max_tokens: 4096,
+      max_tokens: options.maxTokens ?? 4096,
       temperature: temp,
     };
 
@@ -323,6 +556,7 @@ export async function runInference(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(payload),
+      signal: combinedSignal,
     });
 
     if (!res.ok) {

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import fs from 'fs';
+import path from 'path';
 
 export async function GET(
   request: NextRequest,
@@ -33,9 +35,18 @@ export async function DELETE(
 ) {
   try {
     const { id } = await context.params;
+
+    // 1. Delete from database
     await prisma.conversation.delete({
       where: { id },
     });
+
+    // 2. Clean up compiled projects directory on disk if it exists
+    const projectDir = path.join(process.cwd(), 'projects', id);
+    if (fs.existsSync(projectDir)) {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

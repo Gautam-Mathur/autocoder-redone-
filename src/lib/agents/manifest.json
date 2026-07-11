@@ -12,9 +12,6 @@
     "Designer": {
       "inputs": ["Planner.requirements", "Architect.modules", "System.entities"]
     },
-    "DesignReviewer": {
-      "inputs": ["Planner.requirements", "Architect.modules", "System.entities", "Designer.components", "Designer.navigationMap", "Designer.entityToViewMapping"]
-    },
     "Blueprinter": {
       "inputs": ["Planner.requirements", "Architect.modules", "System.entities", "Designer.components", "Designer.styleTokens"]
     },

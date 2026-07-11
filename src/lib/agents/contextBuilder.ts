@@ -1,29 +1,13 @@
-import { queryAgentOutput } from './sml';
-import manifest from './manifest.json';
+import { StageLedger } from './ruflo/memory';
+import { AGENT_DEFS } from './ruflo/agents';
 
 export async function buildUserContext(
-  conversationId: string,
+  ledger: StageLedger,
   agentName: string
 ): Promise<string> {
-  const agentDeps = (manifest.dependencies as any)[agentName];
-  if (!agentDeps || !agentDeps.inputs) {
-    return '{}';
+  const agentDef = AGENT_DEFS[agentName];
+  if (agentDef && typeof agentDef.getContext === 'function') {
+    return await agentDef.getContext(ledger);
   }
-
-  const mergedContext: Record<string, any> = {};
-
-  for (const inputPath of agentDeps.inputs) {
-    const [upstreamAgent, field] = inputPath.split('.');
-    if (!upstreamAgent || !field) continue;
-
-    const data = await queryAgentOutput(conversationId, upstreamAgent, field);
-    if (data !== null && data !== undefined) {
-      if (!mergedContext[upstreamAgent]) {
-        mergedContext[upstreamAgent] = {};
-      }
-      mergedContext[upstreamAgent][field] = data;
-    }
-  }
-
-  return JSON.stringify(mergedContext, null, 2);
+  return '{}';
 }

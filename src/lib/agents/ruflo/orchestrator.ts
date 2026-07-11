@@ -3,8 +3,11 @@ import { runInference, getLLMConfig } from '../inference';
 import { writeAgentOutput, queryAgentOutput } from '../sml';
 import { buildUserContext } from '../contextBuilder';
 import { AGENT_DEFS, AgentDef } from './agents';
+import { loadExecutiveMemory, saveExecutiveMemory, StageLedger } from './memory';
+import { calculateTokenBudget } from './token-budgeter';
 import fs from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
 
 export const activePipelines = new Set<string>();
 
@@ -49,8 +52,10 @@ export async function runAgent(
   agentName: string,
   userPromptText: string,
   onEvent: PipelineEventCallback,
+  ledger: StageLedger,
   attempt: number = 1,
-  customUserContent?: string
+  customUserContent?: string,
+  signal?: AbortSignal
 ): Promise<any> {
   const agentDef = AGENT_DEFS[agentName];
   if (!agentDef) {
@@ -65,7 +70,7 @@ export async function runAgent(
   await writeHistoryLog(conversationId, agentName, 'Retrying', `Agent ${agentName} started (Attempt ${attempt}/3)...`);
 
   const startTime = Date.now();
-  const contextData = await buildUserContext(conversationId, agentName);
+  const contextData = await buildUserContext(ledger, agentName);
   const config = await getLLMConfig();
   await writeHistoryLog(conversationId, agentName, 'Retrying', `Active Model: ${config.ollamaModel}. Context payload assembled.`);
 
@@ -96,12 +101,19 @@ ${contextData}
 Original Instruction:
 "${userPromptText}"`;
 
+  const { budget, timeoutMs } = calculateTokenBudget(agentName, ledger);
+
   onEvent({
     type: 'AGENT_LOG',
     agent: agentName,
-    message: `Running inference...`,
+    message: `Running inference (Max Tokens: ${budget}, Timeout: ${Math.round(timeoutMs / 1000)}s)...`,
   });
-  await writeHistoryLog(conversationId, agentName, 'Retrying', `Executing LLM inference request on model "${config.ollamaModel}"...`);
+  await writeHistoryLog(
+    conversationId,
+    agentName,
+    'Retrying',
+    `Executing LLM inference request on model "${config.ollamaModel}". Dynamic Budget: ${budget} tokens. Timeout: ${Math.round(timeoutMs / 1000)}s.`
+  );
 
   let rawOutput = '';
   try {
@@ -110,15 +122,22 @@ Original Instruction:
         { role: 'system', content: systemInstructions },
         { role: 'user', content: userContent },
       ],
-      { temperature: agentDef.temperature, format: 'json' }
+      {
+        temperature: agentDef.temperature,
+        format: 'json',
+        maxTokens: budget,
+        timeoutMs: timeoutMs,
+        signal: signal
+      }
     );
   } catch (err: any) {
+    const errMsg = err.message || (signal?.aborted ? 'Request cancelled due to client disconnect.' : 'Connection timed out or socket dropped.');
     onEvent({
       type: 'AGENT_LOG',
       agent: agentName,
-      message: `Inference failed: ${err.message}`,
+      message: `Inference failed: ${errMsg}`,
     });
-    await writeHistoryLog(conversationId, agentName, 'Failed', `Inference failed: ${err.message}`);
+    await writeHistoryLog(conversationId, agentName, 'Failed', `Inference failed: ${errMsg}`);
     throw err;
   }
 
@@ -170,6 +189,7 @@ Original Instruction:
     message: `Saving output to SML...`,
   });
 
+  // Save to legacy SML tables for backwards-compatibility with telemetry/workspace views
   await writeAgentOutput({
     conversationId,
     agentName,
@@ -181,6 +201,43 @@ Original Instruction:
     tokenUsage: rawOutput.length / 4,
     attempt,
   });
+
+  // 1. Write to StageLedger (enforces ownership and oscillation checks!)
+  const fieldMap: Record<string, string> = {
+    Queen: 'taskSpec',
+    Planner: 'planner',
+    Architect: 'architect',
+    System: 'system',
+    Designer: 'designer',
+    Coder: 'coder',
+    Debugger: 'debugger',
+    Security: 'security',
+    Reviewer: 'reviewer',
+    Tester: 'tester',
+  };
+  const field = fieldMap[agentName];
+  if (field) {
+    if (agentName === 'Coder' && parsedJson) {
+      let code = '';
+      if (parsedJson.code) {
+        code = parsedJson.code;
+      } else if (Array.isArray(parsedJson.generatedFiles) && parsedJson.generatedFiles[0]) {
+        code = parsedJson.generatedFiles[0].content || '';
+        // Polyfill code for backward compatibility
+        parsedJson.code = code;
+      }
+      const targetFile = customUserContent ? customUserContent.match(/filepath: "([^"]+)"/)?.[1] || 'output.js' : 'output.js';
+      const currentCoderState = ledger.read('coder') || {};
+      const updatedCoderState = {
+        ...currentCoderState,
+        [targetFile]: code
+      };
+      await ledger.write(agentName, field, updatedCoderState);
+    } else {
+      await ledger.write(agentName, field, parsedJson);
+    }
+  }
+  await ledger.clearInvalidation(agentName);
 
   await writeHistoryLog(
     conversationId,
@@ -209,11 +266,116 @@ function writeProjectFile(conversationId: string, filePath: string, content: str
   fs.writeFileSync(fullPath, content, 'utf8');
 }
 
+export async function launchVSCodePreview(conversationId: string, onEvent: PipelineEventCallback) {
+  try {
+    const projectPath = path.join(process.cwd(), 'projects', conversationId);
+    if (!fs.existsSync(projectPath)) return;
+
+    // Detect if there's a Node.js script entry point
+    const potentialEntries = ['main.js', 'app.js', 'server.js', 'index.js'];
+    let entryFile = '';
+    for (const f of potentialEntries) {
+      if (fs.existsSync(path.join(projectPath, f))) {
+        entryFile = f;
+        break;
+      }
+    }
+
+    // Fallback: If no entry file exists but it is a Node.js project, generate a default wrapper index.js
+    if (!entryFile && (fs.existsSync(path.join(projectPath, 'routes')) || fs.existsSync(path.join(projectPath, 'controllers')))) {
+      const defaultIndexContent = `const express = require('express');
+const app = express();
+const port = process.env.PORT || 8080;
+
+app.use(express.json());
+
+// Auto-register routes if available
+try {
+  const taskRoutes = require('./routes/taskRoutes');
+  app.use('/api', taskRoutes);
+  app.use('/', taskRoutes);
+} catch (err) {
+  console.log("No taskRoutes found or failed to load:", err.message);
+}
+
+app.get('/health', (req, res) => res.json({ status: 'OK', message: 'Fallback server running' }));
+
+app.listen(port, () => {
+  console.log(\`Server is running on port \${port}\`);
+});
+`;
+      fs.writeFileSync(path.join(projectPath, 'index.js'), defaultIndexContent, 'utf8');
+      entryFile = 'index.js';
+    }
+
+    const command = entryFile ? `node ${entryFile}` : (process.platform === 'win32' ? 'npx.cmd -y serve -l 8080' : 'npx -y serve -l 8080');
+
+    // Create .vscode directory if needed
+    const vscodeDir = path.join(projectPath, '.vscode');
+    if (!fs.existsSync(vscodeDir)) {
+      fs.mkdirSync(vscodeDir, { recursive: true });
+    }
+
+    const tasksJson = {
+      version: '2.0.0',
+      tasks: [
+        {
+          label: 'Auto Start Server',
+          type: 'shell',
+          command: command,
+          options: {
+            env: {
+              PORT: '8080'
+            }
+          },
+          runOptions: {
+            runOn: 'folderOpen'
+          },
+          presentation: {
+            reveal: 'always',
+            panel: 'new'
+          }
+        }
+      ]
+    };
+
+    fs.writeFileSync(
+      path.join(vscodeDir, 'tasks.json'),
+      JSON.stringify(tasksJson, null, 2),
+      'utf8'
+    );
+
+    onEvent({
+      type: 'AGENT_LOG',
+      message: `Launching new VS Code workspace instance for project: "${conversationId}"...`
+    });
+
+    exec(`code "${projectPath}"`, (err) => {
+      if (err) {
+        onEvent({
+          type: 'AGENT_LOG',
+          message: 'Warning: VS Code CLI ("code") was not found on your system PATH. Please open the project directory manually.'
+        });
+      }
+    });
+  } catch (error: any) {
+    onEvent({
+      type: 'AGENT_LOG',
+      message: `Failed to initialize VS Code auto-run: ${error.message}`
+    });
+  }
+}
+
 export async function runOrchestrator(
   conversationId: string,
   userPrompt: string,
-  onEvent: PipelineEventCallback
+  onEvent: PipelineEventCallback,
+  signal?: AbortSignal
 ): Promise<void> {
+  if (signal?.aborted) {
+    throw new Error('Pipeline compilation aborted due to client disconnect.');
+  }
+
   if (activePipelines.has(conversationId)) {
     onEvent({
       type: 'AGENT_LOG',
@@ -232,7 +394,29 @@ export async function runOrchestrator(
       throw new Error(`Conversation not found: ${conversationId}`);
     }
 
+    // Load state ledger
+    const memoryState = await loadExecutiveMemory(conversationId);
+    const ledger = new StageLedger(conversationId, memoryState);
+
+    let actualPrompt = userPrompt;
+    if (userPrompt.trim().toLowerCase() === 'continue') {
+      actualPrompt = memoryState.originalPrompt || conversation.title || 'Make a project';
+    } else {
+      memoryState.originalPrompt = userPrompt;
+      await saveExecutiveMemory(conversationId, memoryState);
+    }
+
     let currentStage = conversation.currentStage;
+
+    if (conversation.status === 'Completed') {
+      onEvent({
+        type: 'AGENT_LOG',
+        message: 'Project is already compiled. Initializing VS Code preview server...'
+      });
+      await launchVSCodePreview(conversationId, onEvent);
+      return;
+    }
+
     onEvent({
       type: 'PIPELINE_START',
       message: `Resuming pipeline for conversation ${conversationId} from stage: ${currentStage}...`,
@@ -245,14 +429,12 @@ export async function runOrchestrator(
       'Architect',
       'System',
       'Designer',
-      'DesignReviewer',
       'Blueprinter',
       'Coder',
       'Tester',
       'Debugger',
       'Security',
-      'Reviewer',
-      'Refiner'
+      'Reviewer'
     ];
 
     let startIndex = pipelineStages.indexOf(currentStage);
@@ -261,6 +443,10 @@ export async function runOrchestrator(
     }
 
   for (let i = startIndex; i < pipelineStages.length; i++) {
+    if (signal?.aborted) {
+      throw new Error('Pipeline compilation aborted due to client disconnect.');
+    }
+
     const stage = pipelineStages[i];
 
     await prisma.conversation.update({
@@ -326,10 +512,12 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
             coderOutput = await runAgent(
               conversationId,
               'Coder',
-              userPrompt,
+              actualPrompt,
               onEvent,
+              ledger,
               attempt,
-              customUserContent
+              customUserContent,
+              signal
             );
             success = true;
             break;
@@ -339,6 +527,9 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
               agent: 'Coder',
               message: `Failed to compile ${bp.file} on attempt ${attempt}: ${err.message}`,
             });
+            if (signal?.aborted) {
+              throw err;
+            }
           }
         }
 
@@ -383,10 +574,75 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
       // ----------------------------------------------------
       // SPECIAL STAGE: Tester & Linter checks
       // ----------------------------------------------------
+      let customUserContent: string | undefined = undefined;
+      
+      try {
+        const projectPath = path.join(process.cwd(), 'projects', conversationId);
+        const potentialEntries = ['main.js', 'app.js', 'server.js', 'index.js'];
+        let entryFile = '';
+        for (const f of potentialEntries) {
+          if (fs.existsSync(path.join(projectPath, f))) {
+            entryFile = f;
+            break;
+          }
+        }
+
+        if (entryFile) {
+          onEvent({
+            type: 'AGENT_LOG',
+            agent: 'Tester',
+            message: `Starting developer-style runtime testing. Spawning "${entryFile}" in background on port 8082...`
+          });
+
+          const { spawn } = require('child_process');
+          const child = spawn('node', [entryFile], {
+            cwd: projectPath,
+            env: { ...process.env, PORT: '8082' }
+          });
+
+          let stdoutBuffer = '';
+          let stderrBuffer = '';
+
+          child.stdout.on('data', (data: any) => {
+            stdoutBuffer += data.toString();
+          });
+
+          child.stderr.on('data', (data: any) => {
+            stderrBuffer += data.toString();
+          });
+
+          // Wait for 4000ms to collect startup console logs/exceptions
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+
+          // Terminate the process safely
+          child.kill('SIGTERM');
+
+          customUserContent = `--- RUNTIME EXECUTION LOGS ---\n[STDOUT]:\n${stdoutBuffer || '(None)'}\n[STDERR]:\n${stderrBuffer || '(None)'}\n------------------------------`;
+          
+          if (stderrBuffer.trim()) {
+            onEvent({
+              type: 'AGENT_LOG',
+              agent: 'Tester',
+              message: `Warning: Runtime execution captured errors in stderr. Logs attached to test analysis.`
+            });
+          } else {
+            onEvent({
+              type: 'AGENT_LOG',
+              agent: 'Tester',
+              message: `Runtime execution completed cleanly without immediate crash logs.`
+            });
+          }
+        } else {
+          customUserContent = `--- RUNTIME EXECUTION LOGS ---\nNo entry script found. Static layout verified.\n------------------------------`;
+        }
+      } catch (err: any) {
+        customUserContent = `--- RUNTIME EXECUTION LOGS ---\nFailed to run developer runtime checks: ${err.message}\n------------------------------`;
+      }
+
       let success = false;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          output = await runAgent(conversationId, stage, userPrompt, onEvent, attempt);
+          output = await runAgent(conversationId, stage, actualPrompt, onEvent, ledger, attempt, customUserContent, signal);
           success = true;
           break;
         } catch (err: any) {
@@ -395,6 +651,9 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
             agent: stage,
             message: `Attempt ${attempt} failed: ${err.message}`,
           });
+          if (signal?.aborted) {
+            throw err;
+          }
         }
       }
 
@@ -510,15 +769,18 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
         let success = false;
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-            debugOutput = await runAgent(conversationId, 'Debugger', userPrompt, onEvent, attempt);
+            debugOutput = await runAgent(conversationId, 'Debugger', actualPrompt, onEvent, ledger, attempt, undefined, signal);
             success = true;
             break;
-          } catch (e) {
+          } catch (e: any) {
             onEvent({
               type: 'AGENT_LOG',
               agent: 'Debugger',
               message: `Debugger failed on attempt ${attempt}.`,
             });
+            if (signal?.aborted) {
+              throw e;
+            }
           }
         }
 
@@ -568,10 +830,14 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
       let success = false;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          secReport = await runAgent(conversationId, 'Security', userPrompt, onEvent, attempt);
+          secReport = await runAgent(conversationId, 'Security', actualPrompt, onEvent, ledger, attempt, undefined, signal);
           success = true;
           break;
-        } catch (e) {}
+        } catch (e: any) {
+          if (signal?.aborted) {
+            throw e;
+          }
+        }
       }
 
       if (success && secReport) {
@@ -643,7 +909,7 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
       let success = false;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          output = await runAgent(conversationId, stage, userPrompt, onEvent, attempt);
+          output = await runAgent(conversationId, stage, actualPrompt, onEvent, ledger, attempt, undefined, signal);
           success = true;
           break;
         } catch (err: any) {
@@ -662,6 +928,10 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
             },
           });
 
+          if (signal?.aborted) {
+            throw err;
+          }
+
           if (attempt === 3) {
             await prisma.conversation.update({
               where: { id: conversationId },
@@ -679,6 +949,23 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
 
     // Intermediary check logic after standard runs
     if (stage === 'Queen') {
+      if (output && (output.status === 'Rejected' || output.contextType === 'validationError')) {
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { status: 'Paused' },
+        });
+        onEvent({
+          type: 'PIPELINE_ERROR',
+          message: `Pipeline rejected: Queen Agent classified the request as invalid.\nReason: ${output.reason || 'Invalid Request'}\nMessage: ${output.message}`,
+        });
+        await writeHistoryLog(
+          conversationId,
+          'System',
+          'Failed',
+          `Pipeline halted. Queen validation error: ${output.message}`
+        );
+        return;
+      }
       if (output && output.needsClarification) {
         await prisma.conversation.update({
           where: { id: conversationId },
@@ -709,6 +996,7 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
       await writeHistoryLog(conversationId, 'System', 'Success', 'Pipeline paused at Architect Approval Gate. Awaiting user approval to generate code.');
       return;
     }
+
   }
 
     await prisma.conversation.update({
@@ -716,11 +1004,13 @@ Ensure you write complete source code matching these specs. Do not truncate.`;
       data: { status: 'Completed' },
     });
 
+    await launchVSCodePreview(conversationId, onEvent);
+
     onEvent({
       type: 'PIPELINE_SUCCESS',
       message: `All stages completed successfully! Project code compiles and is ready.`,
     });
-    await writeHistoryLog(conversationId, 'System', 'Success', 'Pipeline compilation completed successfully! All 13 passes resolved.');
+    await writeHistoryLog(conversationId, 'System', 'Success', 'Pipeline compilation completed successfully! All 11 passes resolved.');
   } finally {
     activePipelines.delete(conversationId);
   }

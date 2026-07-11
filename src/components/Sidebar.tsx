@@ -88,14 +88,12 @@ export default function Sidebar() {
 
       {/* Footer Nav */}
       <div className="border-t border-slate-700 p-2 flex flex-col gap-1">
-        <a
-          href="https://github.com/vercel/next.js"
-          target="_blank"
-          rel="noreferrer"
+        <Link
+          href="/docs"
           className="text-slate-400 flex items-center gap-3 p-3 text-xs font-semibold hover:bg-slate-800/50 hover:text-on-surface transition-colors rounded"
         >
           <BookOpen className="w-4 h-4" /> Documentation
-        </a>
+        </Link>
         <Link
           href="/settings"
           className="text-slate-400 flex items-center gap-3 p-3 text-xs font-semibold hover:bg-slate-800/50 hover:text-on-surface transition-colors rounded"
