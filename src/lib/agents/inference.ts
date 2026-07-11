@@ -11,6 +11,7 @@ interface InferenceOptions {
   maxTokens?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  onChunk?: (text: string) => void;
 }
 
 import fs from 'fs';
@@ -464,7 +465,7 @@ export async function runInference(
         temperature: temp,
         num_ctx: 32768, // Request 32K context window to fit large specs and file histories
       },
-      stream: false,
+      stream: true,
     };
 
     if (options.maxTokens) {
@@ -488,8 +489,54 @@ export async function runInference(
       throw new Error(`Ollama inference failed: ${res.statusText} - ${errText}`);
     }
 
-    const data = await res.json();
-    return data.message.content;
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    let accumulatedContent = '';
+
+    if (reader) {
+      try {
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          // Save the last line if it is incomplete
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const parsed = JSON.parse(line);
+              const content = parsed.message?.content || '';
+              accumulatedContent += content;
+              if (options.onChunk && content) {
+                options.onChunk(content);
+              }
+            } catch (e) {
+              // Ignore partial JSON errors
+            }
+          }
+        }
+        // Parse any remaining buffer content
+        if (buffer.trim()) {
+          try {
+            const parsed = JSON.parse(buffer);
+            const content = parsed.message?.content || '';
+            accumulatedContent += content;
+            if (options.onChunk && content) {
+              options.onChunk(content);
+            }
+          } catch (e) {}
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } else {
+      const data = await res.json();
+      return data.message.content;
+    }
+    return accumulatedContent;
   } else if (config.provider === 'openai') {
     if (!config.openaiApiKey) {
       throw new Error('OpenAI API Key is not configured.');

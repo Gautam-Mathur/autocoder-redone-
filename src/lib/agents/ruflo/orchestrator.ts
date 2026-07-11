@@ -116,6 +116,9 @@ Original Instruction:
   );
 
   let rawOutput = '';
+  let accumulatedText = '';
+  let lastUpdate = 0;
+
   try {
     rawOutput = await runInference(
       [
@@ -127,7 +130,66 @@ Original Instruction:
         format: 'json',
         maxTokens: budget,
         timeoutMs: timeoutMs,
-        signal: signal
+        signal: signal,
+        onChunk: (chunk: string) => {
+          accumulatedText += chunk;
+          const now = Date.now();
+          // Throttle updates to at most once every 300ms to avoid flooding SSE connection
+          if (now - lastUpdate > 300) {
+            lastUpdate = now;
+            
+            const apis: any[] = [];
+            const entities: string[] = [];
+            const files: string[] = [];
+
+            // Speculative parsing patterns
+            const methodRegex = /"method"\s*:\s*"([^"]+)"/g;
+            const routeRegex = /"route"\s*:\s*"([^"]+)"/g;
+            let mMatch, rMatch;
+            const methodsFound: string[] = [];
+            const routesFound: string[] = [];
+            while ((mMatch = methodRegex.exec(accumulatedText)) !== null) {
+              methodsFound.push(mMatch[1]);
+            }
+            while ((rMatch = routeRegex.exec(accumulatedText)) !== null) {
+              routesFound.push(rMatch[1]);
+            }
+            for (let idx = 0; idx < Math.min(methodsFound.length, routesFound.length); idx++) {
+              apis.push({ method: methodsFound[idx], route: routesFound[idx] });
+            }
+
+            const entityNameRegex = /"name"\s*:\s*"([^"]+)"/g;
+            let entMatch;
+            while ((entMatch = entityNameRegex.exec(accumulatedText)) !== null) {
+              const name = entMatch[1];
+              if (name && name.length > 2 && !name.includes('App') && !entities.includes(name)) {
+                entities.push(name);
+              }
+            }
+
+            const fileRegex = /"path"\s*:\s*"([^"]+\.(?:js|jsx|ts|tsx|json))"/g;
+            let fMatch;
+            while ((fMatch = fileRegex.exec(accumulatedText)) !== null) {
+              if (!files.includes(fMatch[1])) {
+                files.push(fMatch[1]);
+              }
+            }
+
+            onEvent({
+              type: 'AGENT_STREAM_PROGRESS',
+              agent: agentName,
+              message: `Generating: ${accumulatedText.split(/\s+/).length} tokens...`,
+              data: {
+                tokenCount: Math.round(accumulatedText.length / 4),
+                maxTokens: budget,
+                apis,
+                entities,
+                files,
+                latestText: accumulatedText.substring(Math.max(0, accumulatedText.length - 200))
+              }
+            });
+          }
+        }
       }
     );
   } catch (err: any) {
