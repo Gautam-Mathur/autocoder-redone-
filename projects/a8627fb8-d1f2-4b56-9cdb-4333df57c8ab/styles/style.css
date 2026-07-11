@@ -1,0 +1,12 @@
+/* Main Page Styles */
+body.main {
+  background-color: #f0f8ff;
+  font-family: Arial, sans-serif;
+}
+
+/* Data Display Page Styles */
+body.data-display {
+  background-color: #fff;
+  color: #333;
+  font-family: 'Courier New', Courier, monospace;
+}
