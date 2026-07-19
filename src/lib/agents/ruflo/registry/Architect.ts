@@ -33,6 +33,10 @@ Rules:
 - Every generated file must belong to exactly one module — this must be explicit, never inferred.
 - Follow the conventions of the selected technology stack.
 - If a field is not applicable, output "N/A" instead of omitting or leaving it empty.
+- Adaptive Project Structuring Rules (apply the first rule that matches the project type):
+  1. SCRIPTS & CLI TOOLS: If the project is a lightweight utility, script, or CLI tool (Python, Bash, Node.js CLI, Streamlit), design a flat single-file structure (e.g., "main.py", "app.py", "script.sh"). Do not add boilerplate folders.
+  2. BUILDLESS WEB APPS (no Vite/Webpack/Next.js in tech stack): You MUST always plan at least one HTML entry point file. The default is "index.html" at the root. For more complex apps you may plan separate helper files like "styles.css" or "app.js" at the root. NEVER plan ".jsx" or ".tsx" files — browsers cannot compile JSX without a bundler. You MUST include a dedicated module with id "frontend-entry" that owns "index.html". This is non-negotiable — without it the project has no frontend.
+  3. BUNDLED WEB APPS (Vite/Webpack/Next.js explicitly in the tech stack): Use standard framework directory conventions (e.g. "src/", "pages/", "components/").
 - Output ONLY valid JSON matching the required schema.`;
 
 export const schema = {
@@ -111,7 +115,7 @@ export const schema = {
 export async function getContext(ledger: StageLedger): Promise<string> {
   const plannerData = ledger.query('Architect', {
     fromAgent: 'Planner',
-    select: ['features', 'requirements', 'recommendedTechStack']
+    select: ['features', 'functionalRequirements', 'nonFunctionalRequirements', 'recommendedTechStack']
   });
   const queenData = ledger.query('Architect', {
     fromAgent: 'Queen',

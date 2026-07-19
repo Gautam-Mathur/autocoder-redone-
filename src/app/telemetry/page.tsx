@@ -12,6 +12,8 @@ import {
   RefreshCw,
   Clock,
   Search,
+  Activity,
+  Download,
 } from 'lucide-react';
 
 interface LogRecord {
@@ -41,6 +43,8 @@ export default function TelemetryDashboard() {
   const [loading, setLoading] = useState(true);
   const [pipelineStatus, setPipelineStatus] = useState<string>('Idle');
   const [currentStage, setCurrentStage] = useState<string>('Queen');
+  const [selectedLog, setSelectedLog] = useState<any | null>(null);
+  const [telemetrySubTab, setTelemetrySubTab] = useState<'inflow' | 'thought' | 'outflow' | 'orchestration' | 'schema' | 'ledger' | 'memory'>('inflow');
 
   // Fetch list of conversations to support switching projects in telemetry
   useEffect(() => {
@@ -83,6 +87,35 @@ export default function TelemetryDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const downloadLogs = () => {
+    if (!logsList || logsList.length === 0) return;
+    const formattedData = logsList.map((log) => {
+      let payload = log.logs;
+      if (log.logs.trim().startsWith('{') && log.logs.includes('"telemetryType":"rich_step_log"')) {
+        try {
+          payload = JSON.parse(log.logs);
+        } catch (e) {}
+      }
+      return {
+        id: log.id,
+        stage: log.stage,
+        status: log.status,
+        timestamp: log.createdAt,
+        content: payload
+      };
+    });
+
+    const blob = new Blob([JSON.stringify(formattedData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `telemetry_logs_${activeId}_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   useEffect(() => {
@@ -195,6 +228,15 @@ export default function TelemetryDashboard() {
                 ))}
               </select>
             </div>
+          )}
+          {activeId && logsList.length > 0 && (
+            <button
+              onClick={downloadLogs}
+              className="p-2 border border-slate-700 rounded text-slate-400 hover:text-on-surface hover:bg-slate-900 transition-colors flex items-center gap-1.5 text-xs font-mono"
+              title="Download Logs"
+            >
+              <Download className="w-4 h-4" /> Download Logs
+            </button>
           )}
           <button
             onClick={fetchTelemetryAndLogs}
@@ -417,26 +459,62 @@ export default function TelemetryDashboard() {
                 <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
               </div>
               <div className="flex-1 overflow-y-auto font-mono text-[10px] text-slate-400 flex flex-col gap-1.5 pr-2">
-                {logsList.length === 0 ? (
-                  <div className="text-slate-600 text-center mt-8">No reasoning cycles recorded yet.</div>
-                ) : (
-                  logsList
-                    .filter((l) =>
-                      l.logs.includes('started') ||
-                      l.logs.includes('inference') ||
-                      l.logs.includes('parse') ||
-                      l.logs.includes('validation') ||
-                      l.logs.includes('compilation') ||
-                      l.logs.includes('reproduction')
-                    )
-                    .slice(0, 10)
-                    .map((log, idx) => (
-                      <div key={idx} className="flex gap-2 items-start border-l border-slate-800 pl-2 py-0.5">
-                        <span className="text-indigo-400 flex-shrink-0">[{log.stage}]</span>
-                        <span className="text-slate-350">{log.logs}</span>
-                      </div>
-                    ))
-                )}
+                {(() => {
+                  const list: Array<{ stage: string; message: string }> = [];
+                  for (const log of logsList) {
+                    const logMsg = log.logs || '';
+                    if (logMsg.trim().startsWith('{') && logMsg.includes('"telemetryType":"rich_step_log"')) {
+                      try {
+                        const parsed = JSON.parse(logMsg);
+                        const stage = parsed.executionMemory?.stage || log.stage;
+                        const attempt = parsed.orchestration?.attempt || 1;
+                        const duration = parsed.orchestration?.durationMs || 0;
+                        
+                        list.push({
+                          stage,
+                          message: `Started execution attempt ${attempt}/3...`
+                        });
+                        if (parsed.orchestration?.errorMessage) {
+                          list.push({
+                            stage,
+                            message: `Failed: ${parsed.orchestration.errorMessage}`
+                          });
+                        } else {
+                          list.push({
+                            stage,
+                            message: `Completed successfully in ${duration}ms`
+                          });
+                        }
+                        continue;
+                      } catch (e) {}
+                    }
+                    
+                    if (
+                      logMsg.includes('started') ||
+                      logMsg.includes('inference') ||
+                      logMsg.includes('parse') ||
+                      logMsg.includes('validation') ||
+                      logMsg.includes('compilation') ||
+                      logMsg.includes('reproduction')
+                    ) {
+                      list.push({
+                        stage: log.stage,
+                        message: logMsg
+                      });
+                    }
+                  }
+
+                  const sliced = list.slice(0, 10);
+                  if (sliced.length === 0) {
+                    return <div className="text-slate-650 text-center mt-8">No reasoning cycles recorded yet.</div>;
+                  }
+                  return sliced.map((item, idx) => (
+                    <div key={idx} className="flex gap-2 items-start border-l border-slate-800 pl-2 py-0.5">
+                      <span className="text-indigo-400 flex-shrink-0">[{item.stage}]</span>
+                      <span className="text-slate-350">{item.message}</span>
+                    </div>
+                  ));
+                })()}
               </div>
             </div>
           </div>
@@ -444,109 +522,270 @@ export default function TelemetryDashboard() {
       )}
 
       {/* Execution Log Table Panel */}
-      <div className="flex-1 bg-slate-900 border border-slate-700 rounded-lg flex flex-col overflow-hidden min-h-[300px]">
-        {/* Table Toolbar */}
-        <div className="p-3 border-b border-slate-700 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-slate-900/50">
-          <div className="flex items-center gap-3">
-            <ListFilter className="w-4 h-4 text-slate-400" />
-            <h3 className="text-xs font-bold text-on-surface uppercase tracking-wider">Execution Log</h3>
+      <div className="flex-1 bg-slate-900 border border-slate-700 rounded-lg flex overflow-hidden min-h-[400px]">
+        {/* Left: Logs List / Table */}
+        <div className="flex-1 flex flex-col overflow-hidden h-full">
+          {/* Table Toolbar */}
+          <div className="p-3 border-b border-slate-700 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-slate-900/50">
+            <div className="flex items-center gap-3">
+              <ListFilter className="w-4 h-4 text-slate-400" />
+              <h3 className="text-xs font-bold text-on-surface uppercase tracking-wider">Execution Log</h3>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              {/* Search */}
+              <div className="relative w-full md:w-48">
+                <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 text-xs rounded pl-8 pr-3 py-1 outline-none focus:border-electric-indigo"
+                  placeholder="Filter logs..."
+                />
+              </div>
+
+              {/* Filter buttons */}
+              <div className="flex bg-slate-950 rounded border border-slate-700 p-0.5">
+                <button
+                  onClick={() => setFilter('ALL')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded ${filter === 'ALL' ? 'bg-slate-800 text-on-surface' : 'text-slate-400'}`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setFilter('SUCCESS')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded ${filter === 'SUCCESS' ? 'bg-slate-800 text-on-surface' : 'text-slate-400'}`}
+                >
+                  Success
+                </button>
+                <button
+                  onClick={() => setFilter('FAILED')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded ${filter === 'FAILED' ? 'bg-slate-800 text-on-surface' : 'text-slate-400'}`}
+                >
+                  Error
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            {/* Search */}
-            <div className="relative w-full md:w-48">
-              <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 text-xs rounded pl-8 pr-3 py-1 outline-none focus:border-electric-indigo"
-                placeholder="Filter logs..."
-              />
-            </div>
-
-            {/* Filter buttons */}
-            <div className="flex bg-slate-950 rounded border border-slate-700 p-0.5">
-              <button
-                onClick={() => setFilter('ALL')}
-                className={`px-2 py-1 text-[10px] font-bold rounded ${filter === 'ALL' ? 'bg-slate-800 text-on-surface' : 'text-slate-400'}`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setFilter('SUCCESS')}
-                className={`px-2 py-1 text-[10px] font-bold rounded ${filter === 'SUCCESS' ? 'bg-slate-800 text-on-surface' : 'text-slate-400'}`}
-              >
-                Success
-              </button>
-              <button
-                onClick={() => setFilter('FAILED')}
-                className={`px-2 py-1 text-[10px] font-bold rounded ${filter === 'FAILED' ? 'bg-slate-800 text-on-surface' : 'text-slate-400'}`}
-              >
-                Error
-              </button>
-            </div>
+          {/* Table Content */}
+          <div className="flex-1 overflow-auto bg-slate-950/70">
+            {!activeId ? (
+              <div className="p-12 text-center text-xs text-slate-500">
+                No active project selected. Choose a project from the switcher at the top to load its audit telemetry logs.
+              </div>
+            ) : loading ? (
+              <div className="p-12 text-center text-xs text-slate-500 animate-pulse">
+                Fetching pipeline execution log...
+              </div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="p-12 text-center text-xs text-slate-500">
+                No log entries match the filters.
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse font-mono text-xs">
+                <thead className="sticky top-0 bg-slate-950 z-10 text-[10px] text-slate-400 border-b border-slate-700">
+                  <tr>
+                    <th className="p-3 font-medium tracking-wider w-36">Time</th>
+                    <th className="p-3 font-medium tracking-wider w-36">Agent Name</th>
+                    <th className="p-3 font-medium tracking-wider">Command / Action</th>
+                    <th className="p-3 font-medium tracking-wider w-24">Result</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {filteredLogs.map((log) => {
+                    const isSuccess = log.status === 'Success';
+                    const isSelected = selectedLog && (selectedLog.executionMemory?.stage === log.stage || (selectedLog.thought === log.logs));
+                    return (
+                      <tr 
+                        key={log.id} 
+                        onClick={() => {
+                          if (log.logs.trim().startsWith('{') && log.logs.includes('"telemetryType":"rich_step_log"')) {
+                            try {
+                              const parsed = JSON.parse(log.logs);
+                              setSelectedLog(parsed);
+                            } catch (e) {
+                              setSelectedLog(null);
+                            }
+                          } else {
+                            setSelectedLog({
+                              telemetryType: 'rich_step_log',
+                              executionMemory: { stage: log.stage, status: log.status },
+                              thought: log.logs,
+                              orchestration: { attempt: 1, durationMs: 0, model: 'System Event' }
+                            });
+                          }
+                        }}
+                        className={`hover:bg-slate-900/30 transition-colors cursor-pointer ${isSelected ? 'bg-indigo-950/20 border-l-2 border-l-indigo-500' : ''} ${!isSuccess && 'bg-red-500/5'}`}
+                      >
+                        <td className="p-3 text-slate-500 whitespace-nowrap">
+                          {new Date(log.createdAt).toLocaleTimeString()}
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-1.5 h-1.5 rounded-full ${isSuccess ? 'bg-electric-indigo' : 'bg-red-500'}`} />
+                            <span className="text-on-surface">{log.stage}</span>
+                          </div>
+                        </td>
+                        <td className="p-3 max-w-md truncate">
+                          <code className="text-slate-350 font-mono text-[10px]">
+                            {(() => {
+                              if (log.logs.trim().startsWith('{') && log.logs.includes('"telemetryType":"rich_step_log"')) {
+                                try {
+                                  const parsed = JSON.parse(log.logs);
+                                  const attempt = parsed.orchestration?.attempt || 1;
+                                  const duration = parsed.orchestration?.durationMs || 0;
+                                  return `[Rich Telemetry Log] Attempt ${attempt}/3 completed in ${duration}ms. Click to inspect.`;
+                                } catch (e) {}
+                              }
+                              return log.logs;
+                            })()}
+                          </code>
+                        </td>
+                        <td className="p-3">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${
+                            isSuccess
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                              : 'bg-red-500/10 border-red-500/20 text-red-500'
+                          }`}>
+                            {isSuccess ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                            {isSuccess ? 'Success' : 'Error'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
-        {/* Table Content */}
-        <div className="flex-1 overflow-auto bg-slate-950/70">
-          {!activeId ? (
-            <div className="p-12 text-center text-xs text-slate-500">
-              No active project selected. Choose a project from the switcher at the top to load its audit telemetry logs.
+        {/* Right: Detailed Telemetry Inspector */}
+        {selectedLog && (
+          <div className="w-1/2 flex flex-col bg-slate-950 border-l border-slate-800 overflow-hidden h-full text-xs">
+            {/* Inspector Header */}
+            <div className="p-4 border-b border-slate-850 bg-slate-900/20 flex flex-col gap-1.5">
+              <div className="flex justify-between items-center w-full">
+                <h4 className="font-bold text-slate-100 flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${selectedLog.executionMemory?.status === 'Success' ? 'bg-emerald-400' : 'bg-red-500'}`} />
+                  Stage: {selectedLog.executionMemory?.stage || 'Unknown'}
+                </h4>
+                <button 
+                  onClick={() => setSelectedLog(null)}
+                  className="text-[10px] text-slate-500 hover:text-slate-350 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1 font-mono">
+                <div><strong>Model:</strong> {selectedLog.orchestration?.model || 'ollama/default'}</div>
+                <div><strong>Duration:</strong> {selectedLog.orchestration?.durationMs || 0}ms</div>
+                <div><strong>Attempt:</strong> {selectedLog.orchestration?.attempt || 1}/3</div>
+              </div>
             </div>
-          ) : loading ? (
-            <div className="p-12 text-center text-xs text-slate-500 animate-pulse">
-              Fetching pipeline execution log...
+
+            {/* Sub-tabs Navigation */}
+            <div className="flex border-b border-slate-850 bg-slate-900/10 overflow-x-auto no-scrollbar">
+              {([
+                { id: 'inflow', label: 'Inflow' },
+                { id: 'thought', label: 'Thought' },
+                { id: 'outflow', label: 'Outflow' },
+                { id: 'orchestration', label: 'Stats' },
+                { id: 'schema', label: 'Schema' },
+                { id: 'ledger', label: 'Ledger' },
+                { id: 'memory', label: 'Memory' }
+              ] as const).map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setTelemetrySubTab(tab.id)}
+                  className={`px-3 py-2 text-[10px] font-bold font-mono tracking-wider transition-all border-b-2 ${
+                    telemetrySubTab === tab.id
+                      ? 'text-indigo-400 border-indigo-400 bg-slate-900/30'
+                      : 'text-slate-500 border-transparent hover:text-slate-300 hover:bg-slate-900/10'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
-          ) : filteredLogs.length === 0 ? (
-            <div className="p-12 text-center text-xs text-slate-500">
-              No log entries match the filters.
+
+            {/* Sub-tab Content */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-950/40 font-mono text-[10px] text-slate-350">
+              {telemetrySubTab === 'inflow' && (
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">System Instructions</div>
+                    <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto max-h-60 whitespace-pre-wrap select-text">
+                      {selectedLog.inflow?.systemInstructions || 'N/A'}
+                    </pre>
+                  </div>
+                  <div>
+                    <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">User Content Context</div>
+                    <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto max-h-60 whitespace-pre-wrap select-text">
+                      {selectedLog.inflow?.userContent || 'N/A'}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {telemetrySubTab === 'thought' && (
+                <div>
+                  <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">Raw Model Output</div>
+                  <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto whitespace-pre-wrap select-text leading-relaxed text-slate-300">
+                    {selectedLog.thought || 'N/A'}
+                  </pre>
+                </div>
+              )}
+
+              {telemetrySubTab === 'outflow' && (
+                <div>
+                  <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">Parsed JSON Output</div>
+                  <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto text-emerald-400 select-text">
+                    {selectedLog.outflow ? JSON.stringify(selectedLog.outflow, null, 2) : 'N/A'}
+                  </pre>
+                </div>
+              )}
+
+              {telemetrySubTab === 'orchestration' && (
+                <div>
+                  <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">Orchestration Stats</div>
+                  <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto select-text">
+                    {JSON.stringify(selectedLog.orchestration, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {telemetrySubTab === 'schema' && (
+                <div>
+                  <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">JSON Validation Schema</div>
+                  <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto select-text">
+                    {selectedLog.validationSchema ? JSON.stringify(selectedLog.validationSchema, null, 2) : 'N/A'}
+                  </pre>
+                </div>
+              )}
+
+              {telemetrySubTab === 'ledger' && (
+                <div>
+                  <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">StageLedger Snapshot</div>
+                  <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto select-text">
+                    {selectedLog.ledgerState ? JSON.stringify(selectedLog.ledgerState, null, 2) : 'N/A'}
+                  </pre>
+                </div>
+              )}
+
+              {telemetrySubTab === 'memory' && (
+                <div>
+                  <div className="text-slate-400 font-bold mb-1.5 uppercase text-[9px] tracking-wider">Execution Context</div>
+                  <pre className="p-3 bg-slate-900 border border-slate-800 rounded overflow-x-auto select-text">
+                    {JSON.stringify(selectedLog.executionMemory, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
-          ) : (
-            <table className="w-full text-left border-collapse font-mono text-xs">
-              <thead className="sticky top-0 bg-slate-950 z-10 text-[10px] text-slate-400 border-b border-slate-700">
-                <tr>
-                  <th className="p-3 font-medium tracking-wider w-36">Time</th>
-                  <th className="p-3 font-medium tracking-wider w-36">Agent Name</th>
-                  <th className="p-3 font-medium tracking-wider">Command / Action</th>
-                  <th className="p-3 font-medium tracking-wider w-24">Result</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {filteredLogs.map((log) => {
-                  const isSuccess = log.status === 'Success';
-                  return (
-                    <tr key={log.id} className={`hover:bg-slate-900/30 transition-colors ${!isSuccess && 'bg-red-500/5'}`}>
-                      <td className="p-3 text-slate-500 whitespace-nowrap">
-                        {new Date(log.createdAt).toLocaleTimeString()}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-1.5 h-1.5 rounded-full ${isSuccess ? 'bg-electric-indigo' : 'bg-red-500'}`} />
-                          <span className="text-on-surface">{log.stage}</span>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <code className="text-slate-300 font-mono">{log.logs}</code>
-                      </td>
-                      <td className="p-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${
-                          isSuccess
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
-                            : 'bg-red-500/10 border-red-500/20 text-red-500'
-                        }`}>
-                          {isSuccess ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                          {isSuccess ? 'Success' : 'Error'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </main>
   );

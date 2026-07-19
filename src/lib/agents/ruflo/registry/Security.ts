@@ -100,15 +100,31 @@ export const schema = {
 export async function getContext(ledger: StageLedger): Promise<string> {
   const queenData = ledger.query('Security', {
     fromAgent: 'Queen',
-    select: ['goal']
+    select: ['projectGoal', 'constraints']
+  });
+  const plannerData = ledger.query('Security', {
+    fromAgent: 'Planner',
+    select: ['features', 'functionalRequirements', 'nonFunctionalRequirements', 'recommendedTechStack']
+  });
+  const architectData = ledger.query('Security', {
+    fromAgent: 'Architect',
+    select: ['modules', 'projectStructure', 'projectConventions']
   });
   const systemData = ledger.query('Security', {
     fromAgent: 'System',
-    select: ['entities', 'endpoints']
+    select: ['database', 'apis']
   });
-  const coderData = ledger.query('Security', {
-    fromAgent: 'Coder',
-    select: ['coder']
+  const designerData = ledger.query('Security', {
+    fromAgent: 'Designer',
+    select: ['pages', 'components', 'designSystem', 'navigation', 'designPhilosophy']
   });
-  return JSON.stringify({ Queen: queenData, System: systemData, Coder: coderData }, null, 2);
+  const coderData = ledger.read('coder') || {};
+  return JSON.stringify({
+    Queen: queenData,
+    Planner: plannerData,
+    Architect: architectData,
+    System: systemData,
+    Designer: designerData,
+    Coder: coderData
+  }, null, 2);
 }

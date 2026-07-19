@@ -194,6 +194,64 @@ const DOC_SECTIONS = [
       </div>
     ),
   },
+  {
+    id: 'input-samples',
+    title: 'Input Attachment Samples',
+    icon: Compass,
+    description: 'Reference templates for attaching custom architecture diagrams and database schemas.',
+    badge: 'Templates',
+    content: (
+      <div className="space-y-6">
+        <p className="text-sm text-slate-300 leading-relaxed">
+          Use these templates as a guide when attaching custom specifications to direct the compiler.
+        </p>
+
+        <div className="grid grid-cols-1 gap-6">
+          <div className="border border-slate-800 bg-slate-950/40 rounded-xl p-5 shadow-xl space-y-3">
+            <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">1. Architecture Specification Template</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Save your folder structure and component relationships as a text file (e.g. <code>architecture.txt</code>) and upload it via the Paperclip icon:
+            </p>
+            <pre className="bg-slate-950 border border-slate-900 rounded-lg p-4 text-[10px] font-mono text-slate-300 overflow-x-auto whitespace-pre">
+{`Project: Fitness Tracker App
+Architecture Style: Clean Separation of Concerns
+
+Folder Structure:
+- src/components/     # Reusable layout elements and forms
+- src/pages/          # Main page views
+- src/lib/db.ts       # Database Connection Client
+
+Component Relationships:
+1. DashboardPage renders Component-DashboardCard and Component-ProgressChart.
+2. HistoryLogPage renders Component-HistoryLogTable.`}
+            </pre>
+          </div>
+
+          <div className="border border-slate-800 bg-slate-950/40 rounded-xl p-5 shadow-xl space-y-3">
+            <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider font-mono">2. Database Schema Template</h4>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Attach a standard SQL structure file (e.g. <code>schema.sql</code>) via the Database icon to enforce strict field and data constraints:
+            </p>
+            <pre className="bg-slate-950 border border-slate-900 rounded-lg p-4 text-[10px] font-mono text-slate-300 overflow-x-auto whitespace-pre">
+{`CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE workouts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id),
+  exercise TEXT NOT NULL,
+  duration_minutes INTEGER,
+  recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);`}
+            </pre>
+          </div>
+        </div>
+      </div>
+    ),
+  },
 ];
 
 export default function DocsPage() {

@@ -1,31 +1,31 @@
 {
   "dependencies": {
     "Planner": {
-      "inputs": ["Queen.domain", "Queen.goal", "Queen.primaryEntities", "Queen.relationships", "Queen.constraints", "Queen.agentTasks"]
+      "inputs": ["Queen.projectName", "Queen.problemStatement", "Queen.projectDescription", "Queen.projectGoal", "Queen.mvpScope", "Queen.constraints", "Queen.risks", "Queen.agentInstructions"]
     },
     "Architect": {
-      "inputs": ["Planner.features", "Planner.requirements", "Queen.constraints"]
+      "inputs": ["Planner.features", "Planner.functionalRequirements", "Planner.nonFunctionalRequirements", "Planner.recommendedTechStack", "Queen.constraints"]
     },
     "System": {
-      "inputs": ["Planner.requirements", "Planner.vocabulary", "Architect.modules"]
+      "inputs": ["Planner.features", "Planner.functionalRequirements", "Planner.nonFunctionalRequirements", "Planner.recommendedTechStack", "Architect.modules", "Queen.constraints"]
     },
     "Designer": {
-      "inputs": ["Planner.requirements", "Architect.modules", "System.entities"]
+      "inputs": ["Planner.features", "Planner.functionalRequirements", "Planner.recommendedTechStack", "Architect.modules", "Architect.projectStructure", "System.database"]
     },
     "Blueprinter": {
-      "inputs": ["Planner.requirements", "Architect.modules", "System.entities", "Designer.components", "Designer.styleTokens"]
+      "inputs": ["Planner.features", "Planner.functionalRequirements", "Planner.recommendedTechStack", "Architect.modules", "Architect.projectStructure", "System.database", "System.apis", "Designer.pages", "Designer.components", "Designer.designSystem", "Designer.navigation", "Designer.designPhilosophy"]
     },
     "Tester": {
-      "inputs": ["Queen.goal", "Queen.constraints", "Architect.modules", "System.entities"]
+      "inputs": ["Queen.projectGoal", "Queen.constraints", "Planner.features", "Planner.functionalRequirements", "Planner.nonFunctionalRequirements", "Planner.recommendedTechStack", "Architect.modules", "System.database", "System.apis", "Designer.components"]
     },
     "Debugger": {
-      "inputs": ["Queen.goal", "Tester.failureReport"]
+      "inputs": ["Queen.projectGoal", "Planner.features", "Planner.functionalRequirements", "Planner.nonFunctionalRequirements", "Planner.recommendedTechStack", "Architect.modules", "Architect.projectStructure", "Architect.projectConventions", "System.database", "System.apis", "Designer.pages", "Designer.components", "Designer.designSystem", "Designer.navigation", "Designer.designPhilosophy", "Tester.testReport"]
     },
     "Security": {
-      "inputs": ["Queen.goal", "System.entities", "System.endpoints"]
+      "inputs": ["Queen.projectGoal", "Planner.features", "Planner.functionalRequirements", "Planner.nonFunctionalRequirements", "Planner.recommendedTechStack", "Architect.modules", "Architect.projectStructure", "Architect.projectConventions", "System.database", "System.apis", "Designer.pages", "Designer.components", "Designer.designSystem", "Designer.navigation", "Designer.designPhilosophy"]
     },
     "Reviewer": {
-      "inputs": ["Queen.goal", "Security.securityReport"]
+      "inputs": ["Queen.projectGoal", "Security.securityReport", "Debugger.debugReport"]
     }
   }
 }

@@ -22,30 +22,75 @@ export async function GET(
       orderBy: { createdAt: 'asc' },
     });
 
-    // 1. Calculate Agent Token Usage
+    // 1. Calculate Agent Token Usage, Latency, and Frequency
     const tokenUsageMap: Record<string, number> = {};
-    let totalTokens = 0;
+    const latencyHistory: Array<{ stage: string; timeMs: number }> = [];
+    const frequencyMap: Record<string, number> = {};
 
-    // Seed from outputs (successful states)
-    outputs.forEach((out) => {
-      const tokens = out.tokenUsage || 0;
-      tokenUsageMap[out.agentName] = tokens;
-    });
-
-    // Scan history logs to capture retry tokens and extra log details
     history.forEach((h) => {
+      const logMsg = h.logs || '';
+      if (logMsg.trim().startsWith('{') && logMsg.includes('"telemetryType":"rich_step_log"')) {
+        try {
+          const parsed = JSON.parse(logMsg);
+          const stage = parsed.executionMemory?.stage || h.stage;
+          if (stage && stage !== 'System' && stage !== 'Unknown') {
+            frequencyMap[stage] = (frequencyMap[stage] || 0) + 1;
+            if (parsed.orchestration?.durationMs) {
+              latencyHistory.push({
+                stage,
+                timeMs: parsed.orchestration.durationMs,
+              });
+            }
+            const inputLen = (parsed.inflow?.systemInstructions?.length || 0) + (parsed.inflow?.userContent?.length || 0);
+            const outputLen = parsed.thought?.length || 0;
+            const estTokens = Math.round((inputLen + outputLen) / 4);
+            tokenUsageMap[stage] = (tokenUsageMap[stage] || 0) + estTokens;
+          }
+          return;
+        } catch (e) {
+          // fallback
+        }
+      }
+
       const match = h.logs.match(/(?:Estimated tokens:|Tokens generated: ~)\s*(\d+)/i);
       if (match) {
         const val = parseInt(match[1]);
         if (h.stage !== 'System' && h.stage !== 'Unknown') {
-          if (!tokenUsageMap[h.stage] || tokenUsageMap[h.stage] < val) {
-            tokenUsageMap[h.stage] = val;
-          }
+          tokenUsageMap[h.stage] = (tokenUsageMap[h.stage] || 0) + val;
         }
+      }
+
+      const lMatch = h.logs.match(/in (\d+)ms/i);
+      if (lMatch) {
+        latencyHistory.push({
+          stage: h.stage,
+          timeMs: parseInt(lMatch[1]),
+        });
+      }
+
+      if (h.logs.includes('started (Attempt') || h.logs.includes('loop started')) {
+        frequencyMap[h.stage] = (frequencyMap[h.stage] || 0) + 1;
       }
     });
 
-    // Sum total
+    // Seed from outputs (successful states)
+    outputs.forEach((out) => {
+      const tokens = out.tokenUsage || 0;
+      if (!tokenUsageMap[out.agentName]) {
+        tokenUsageMap[out.agentName] = tokens;
+      }
+      if (latencyHistory.length === 0) {
+        latencyHistory.push({
+          stage: out.stage,
+          timeMs: out.executionTime || 0,
+        });
+      }
+      if (Object.keys(frequencyMap).length === 0) {
+        frequencyMap[out.agentName] = (frequencyMap[out.agentName] || 0) + 1;
+      }
+    });
+
+    let totalTokens = 0;
     Object.keys(tokenUsageMap).forEach((k) => {
       totalTokens += tokenUsageMap[k];
     });
@@ -56,46 +101,9 @@ export async function GET(
       percentage: totalTokens > 0 ? Math.round((tokenUsageMap[name] / totalTokens) * 100) : 0,
     }));
 
-    // 2. Latency Trends (chronological agent run execution times)
-    const latencyHistory: Array<{ stage: string; timeMs: number }> = [];
-    history.forEach((h) => {
-      const match = h.logs.match(/in (\d+)ms/i);
-      if (match) {
-        latencyHistory.push({
-          stage: h.stage,
-          timeMs: parseInt(match[1]),
-        });
-      }
-    });
-
-    // Fallback to outputs if history didn't capture latency matches
-    if (latencyHistory.length === 0) {
-      outputs.forEach((out) => {
-        latencyHistory.push({
-          stage: out.stage,
-          timeMs: out.executionTime || 0,
-        });
-      });
-    }
-
     const avgLatency = latencyHistory.length > 0 
       ? Math.round(latencyHistory.reduce((sum, item) => sum + item.timeMs, 0) / latencyHistory.length)
       : 0;
-
-    // 3. Tool Execution Frequency (runs by stage)
-    const frequencyMap: Record<string, number> = {};
-    history.forEach((h) => {
-      if (h.logs.includes('started (Attempt') || h.logs.includes('loop started')) {
-        frequencyMap[h.stage] = (frequencyMap[h.stage] || 0) + 1;
-      }
-    });
-
-    // Fallback to outputs frequency
-    if (Object.keys(frequencyMap).length === 0) {
-      outputs.forEach((out) => {
-        frequencyMap[out.agentName] = (frequencyMap[out.agentName] || 0) + 1;
-      });
-    }
 
     const toolFrequency = Object.keys(frequencyMap).map((name) => ({
       tool: name,

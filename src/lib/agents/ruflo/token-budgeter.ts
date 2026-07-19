@@ -54,9 +54,9 @@ export function calculateTokenBudget(
     }
   }
 
-  // 2. Timeout Scaling Math: scale timeout linearly to calculated token budget (240s to 480s)
-  // Maps budget between 16384 and 32768 onto 240s to 480s
-  const timeoutSeconds = Math.max(240, Math.min(480, Math.round((budget / 32768) * 240 + 240)));
+  // 2. Timeout Scaling Math: scale timeout linearly to calculated token budget (240s to 3600s)
+  // Maps budget between 16384 and 32768 onto 240s to 3600s
+  const timeoutSeconds = Math.max(240, Math.min(3600, Math.round((budget / 32768) * 3360 + 240)));
   const timeoutMs = timeoutSeconds * 1000;
 
   return {

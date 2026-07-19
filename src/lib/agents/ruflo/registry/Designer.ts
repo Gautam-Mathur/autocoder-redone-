@@ -34,7 +34,65 @@ Rules:
 - Follow modern UI/UX best practices.
 - If a field is not applicable, output "N/A".
 - Output ONLY valid JSON matching the required schema.
-- The generated JSON is marked "contextType": "canonical" and is immutable downstream.`;
+- The generated JSON is marked "contextType": "canonical" and is immutable downstream.
+
+Example Canonical JSON Structure:
+{
+  "contextType": "canonical",
+  "projectName": "Example App",
+  "mvpReference": "MVP-001",
+  "designPhilosophy": {
+    "theme": "dark",
+    "designPrinciples": ["Simple", "Modern"],
+    "targetExperience": "Clean tracking dashboard",
+    "brandingGuidelines": []
+  },
+  "navigation": {
+    "primaryNavigation": ["Dashboard"],
+    "secondaryNavigation": [],
+    "userFlows": []
+  },
+  "pages": [
+    {
+      "id": "Page-Dashboard",
+      "name": "DashboardPage",
+      "purpose": "Overview of metrics",
+      "layout": "standard",
+      "supportsFeature": "Feature-001",
+      "components": ["Component-Chart"]
+    }
+  ],
+  "components": [
+    {
+      "id": "Component-Chart",
+      "name": "ProgressChart",
+      "purpose": "Renders workout progress graphs",
+      "pageId": "Page-Dashboard",
+      "variants": [],
+      "states": []
+    }
+  ],
+  "designSystem": {
+    "colors": ["bg-slate-950"],
+    "typography": [],
+    "spacing": [],
+    "icons": [],
+    "animations": [],
+    "responsiveBreakpoints": [],
+    "elevation": [],
+    "borders": []
+  },
+  "accessibility": {
+    "standards": ["WCAG 2.1 AA"],
+    "requirements": []
+  },
+  "interactionGuidelines": {
+    "feedback": [],
+    "transitions": [],
+    "errorStates": [],
+    "loadingStates": []
+  }
+}`;
 
 export const schema = {
   type: 'object',
@@ -130,15 +188,16 @@ export const schema = {
 export async function getContext(ledger: StageLedger): Promise<string> {
   const plannerData = ledger.query('Designer', {
     fromAgent: 'Planner',
-    select: ['requirements', 'vocabulary']
+    select: ['features', 'functionalRequirements', 'recommendedTechStack']
   });
   const architectData = ledger.query('Designer', {
     fromAgent: 'Architect',
-    select: ['modules']
+    select: ['modules', 'projectStructure']
   });
   const systemData = ledger.query('Designer', {
     fromAgent: 'System',
-    select: ['entities']
+    select: ['database']
   });
   return JSON.stringify({ Planner: plannerData, Architect: architectData, System: systemData }, null, 2);
 }
+

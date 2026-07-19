@@ -33,6 +33,11 @@ export default function LandingDashboard() {
   const [pipelines, setPipelines] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [architectureContent, setArchitectureContent] = useState<string | null>(null);
+  const [architectureFileName, setArchitectureFileName] = useState<string | null>(null);
+  const [dbSchemaContent, setDbSchemaContent] = useState<string | null>(null);
+  const [dbSchemaFileName, setDbSchemaFileName] = useState<string | null>(null);
+
   // Fetch recent pipelines
   const fetchPipelines = async () => {
     try {
@@ -58,7 +63,14 @@ export default function LandingDashboard() {
       return;
     }
 
-    const finalPrompt = customPromptText || promptText;
+    let finalPrompt = customPromptText || promptText;
+    if (architectureContent) {
+      finalPrompt += `\n\n[Attached Architecture Specification]:\n${architectureContent}`;
+    }
+    if (dbSchemaContent) {
+      finalPrompt += `\n\n[Attached Database Schema]:\n${dbSchemaContent}`;
+    }
+
     if (!finalPrompt.trim()) return;
 
     try {
@@ -136,12 +148,106 @@ export default function LandingDashboard() {
                 : "Initialize Ollama connection to start prompting..."
             }
           />
+
+          <input
+            type="file"
+            id="architecture-file-input"
+            className="hidden"
+            accept=".txt,.json,.md,.sql"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                if (file.size > 150 * 1024) {
+                  alert(`File ${file.name} is too large. Please upload text-based specifications smaller than 150KB to prevent model context overflow.`);
+                  e.target.value = '';
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  setArchitectureContent(event.target?.result as string);
+                  setArchitectureFileName(file.name);
+                };
+                reader.readAsText(file);
+              }
+            }}
+          />
+
+          <input
+            type="file"
+            id="db-schema-file-input"
+            className="hidden"
+            accept=".sql,.txt,.json"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                if (file.size > 150 * 1024) {
+                  alert(`File ${file.name} is too large. Please upload database schemas smaller than 150KB to prevent model context overflow.`);
+                  e.target.value = '';
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  setDbSchemaContent(event.target?.result as string);
+                  setDbSchemaFileName(file.name);
+                };
+                reader.readAsText(file);
+              }
+            }}
+          />
+
+          {(architectureFileName || dbSchemaFileName) && (
+            <div className="flex flex-wrap gap-2 p-2 bg-slate-900/50 border-t border-slate-800/30 text-xs mt-2 rounded">
+              {architectureFileName && (
+                <span className="flex items-center gap-1.5 bg-indigo-950/80 border border-indigo-800 text-indigo-300 px-2 py-0.5 rounded">
+                  <Paperclip className="w-3.5 h-3.5" />
+                  <span>Architecture: {architectureFileName}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setArchitectureContent(null);
+                      setArchitectureFileName(null);
+                    }}
+                    className="text-indigo-400 hover:text-indigo-200 ml-1 font-bold text-sm"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {dbSchemaFileName && (
+                <span className="flex items-center gap-1.5 bg-emerald-950/80 border border-emerald-800 text-emerald-300 px-2 py-0.5 rounded">
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Schema: {dbSchemaFileName}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDbSchemaContent(null);
+                      setDbSchemaFileName(null);
+                    }}
+                    className="text-emerald-400 hover:text-emerald-200 ml-1 font-bold text-sm"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-between items-center p-2 border-t border-slate-800/50 mt-2" style={{ minHeight: '48px' }}>
             <div className="flex items-center gap-3">
-              <button type="button" className="text-slate-400 hover:text-on-surface transition-colors" title="Attach Architecture Diagram">
+              <button
+                type="button"
+                onClick={() => document.getElementById('architecture-file-input')?.click()}
+                className="text-slate-400 hover:text-on-surface transition-colors"
+                title="Attach Architecture Diagram"
+              >
                 <Paperclip className="w-5 h-5" />
               </button>
-              <button type="button" className="text-slate-400 hover:text-on-surface transition-colors" title="Connect Database Schema">
+              <button
+                type="button"
+                onClick={() => document.getElementById('db-schema-file-input')?.click()}
+                className="text-slate-400 hover:text-on-surface transition-colors"
+                title="Connect Database Schema"
+              >
                 <Database className="w-5 h-5" />
               </button>
               {ollamaConnected && ollamaModels.length > 0 ? (
@@ -232,7 +338,32 @@ export default function LandingDashboard() {
       <section className="flex flex-col gap-4 flex-shrink-0">
         <div className="flex justify-between items-center border-b border-slate-700 pb-2">
           <h3 className="text-md font-bold text-on-surface">Active Pipelines &amp; History</h3>
-          <span className="text-xs text-slate-400">Total: {pipelines.length}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400">Total: {pipelines.length}</span>
+            {pipelines.length > 0 && (
+              <button
+                onClick={async () => {
+                  if (confirm('Are you absolutely sure you want to delete ALL compilation history, including all generated project files on disk? This action is irreversible!')) {
+                    try {
+                      const res = await fetch('/api/conversations/clear', { method: 'POST' });
+                      if (res.ok) {
+                        fetchPipelines();
+                      } else {
+                        const errData = await res.json();
+                        alert(`Error clearing history: ${errData.error}`);
+                      }
+                    } catch (err: any) {
+                      console.error(err);
+                      alert(`Failed to clear history: ${err.message}`);
+                    }
+                  }
+                }}
+                className="bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 hover:border-rose-500/50 text-rose-400 px-3 py-1 rounded text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Clear All History
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -243,92 +374,94 @@ export default function LandingDashboard() {
             <span>No active compilation sessions. Describe a project above to start.</span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {pipelines.map((pipe) => {
-              const isActive = pipe.status === 'Active';
-              const isPaused = pipe.status === 'Paused';
-              const isCompleted = pipe.status === 'Completed';
+          <div className="flex-1 overflow-y-auto max-h-[300px] sm:max-h-[400px] border border-slate-800/80 rounded-xl p-2 bg-slate-950/20">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {pipelines.map((pipe) => {
+                const isActive = pipe.status === 'Active';
+                const isPaused = pipe.status === 'Paused';
+                const isCompleted = pipe.status === 'Completed';
 
-              return (
-                <div
-                  key={pipe.id}
-                  onClick={() => {
-                    setActiveId(pipe.id);
-                    router.push(`/workspace?id=${pipe.id}`);
-                  }}
-                  className={`bg-slate-900 border border-slate-700 p-4 rounded flex flex-col gap-3 relative cursor-pointer hover:border-slate-500 transition-colors`}
-                >
-                  {/* Left accent strip */}
-                  <div className={`absolute top-0 left-0 w-1 h-full rounded-l ${
-                    isActive ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]' :
-                    isPaused ? 'bg-amber-500 animate-pulse' :
-                    'bg-emerald-500'
-                  }`} />
+                return (
+                  <div
+                    key={pipe.id}
+                    onClick={() => {
+                      setActiveId(pipe.id);
+                      router.push(`/workspace?id=${pipe.id}`);
+                    }}
+                    className={`bg-slate-900 border border-slate-700 p-4 rounded flex flex-col gap-3 relative cursor-pointer hover:border-slate-500 transition-colors`}
+                  >
+                    {/* Left accent strip */}
+                    <div className={`absolute top-0 left-0 w-1 h-full rounded-l ${
+                      isActive ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]' :
+                      isPaused ? 'bg-amber-500 animate-pulse' :
+                      'bg-emerald-500'
+                    }`} />
 
-                  <div className="flex justify-between items-start pl-2">
-                    <div>
-                      <h4 className="text-sm font-bold text-on-surface mb-1">{pipe.title}</h4>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-2">
-                        <Clock className="w-3.5 h-3.5" />
-                        Last updated {new Date(pipe.updatedAt).toLocaleTimeString()}
+                    <div className="flex justify-between items-start pl-2">
+                      <div>
+                        <h4 className="text-sm font-bold text-on-surface mb-1">{pipe.title}</h4>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                          <Clock className="w-3.5 h-3.5" />
+                          Last updated {new Date(pipe.updatedAt).toLocaleTimeString()}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 border text-[10px] font-bold rounded flex items-center gap-1 ${
-                        isActive ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' :
-                        isPaused ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
-                        'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                      }`}>
-                        {isActive && <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />}
-                        {isPaused && <HelpCircle className="w-3 h-3" />}
-                        {isCompleted && <CheckCircle2 className="w-3 h-3" />}
-                        {pipe.currentStage} ({pipe.status})
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 border text-[10px] font-bold rounded flex items-center gap-1 ${
+                          isActive ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' :
+                          isPaused ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+                          'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                        }`}>
+                          {isActive && <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping" />}
+                          {isPaused && <HelpCircle className="w-3 h-3" />}
+                          {isCompleted && <CheckCircle2 className="w-3 h-3" />}
+                          {pipe.currentStage} ({pipe.status})
+                        </span>
 
-                      <button
-                        title="Delete Project"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (confirm(`Are you sure you want to delete "${pipe.title}" and all its compiled files?`)) {
-                            try {
-                              const res = await fetch(`/api/conversations/${pipe.id}`, { method: 'DELETE' });
-                              if (res.ok) {
-                                fetchPipelines();
+                        <button
+                          title="Delete Project"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm(`Are you sure you want to delete "${pipe.title}" and all its compiled files?`)) {
+                              try {
+                                const res = await fetch(`/api/conversations/${pipe.id}`, { method: 'DELETE' });
+                                if (res.ok) {
+                                  fetchPipelines();
+                                }
+                              } catch (err) {
+                                console.error(err);
                               }
-                            } catch (err) {
-                              console.error(err);
                             }
-                          }
-                        }}
-                        className="text-slate-400 hover:text-rose-400 p-1 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                          }}
+                          className="text-slate-400 hover:text-rose-400 p-1 rounded transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950 border border-slate-800 rounded p-2 text-[11px] font-mono text-slate-400">
+                      <div>ID: <span className="text-slate-500">{pipe.id}</span></div>
+                      {isPaused && (
+                        <div className="text-amber-400 mt-1">
+                          &gt; Halted at Approval Gate. Action required in Workspace.
+                        </div>
+                      )}
+                      {isCompleted && (
+                        <div className="text-emerald-400 mt-1">
+                          &gt; Compilation successful. Code ready for review.
+                        </div>
+                      )}
+                      {isActive && (
+                        <div className="text-indigo-400 mt-1 animate-pulse">
+                          &gt; Active compiler passes. Click to view log feeds.
+                        </div>
+                      )}
                     </div>
                   </div>
-
-                  <div className="bg-slate-950 border border-slate-800 rounded p-2 text-[11px] font-mono text-slate-400">
-                    <div>ID: <span className="text-slate-500">{pipe.id}</span></div>
-                    {isPaused && (
-                      <div className="text-amber-400 mt-1">
-                        &gt; Halted at Approval Gate. Action required in Workspace.
-                      </div>
-                    )}
-                    {isCompleted && (
-                      <div className="text-emerald-400 mt-1">
-                        &gt; Compilation successful. Code ready for review.
-                      </div>
-                    )}
-                    {isActive && (
-                      <div className="text-indigo-400 mt-1 animate-pulse">
-                        &gt; Active compiler passes. Click to view log feeds.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
       </section>

@@ -24,7 +24,7 @@ Input rejection rules (evaluate before generating any output):
 - When rejecting, do not produce the standard schema. Output the Validation Error schema below instead.
 
 Rules:
-- Single-file scripts, utilities, command-line interfaces, and lightweight applications (such as a Streamlit calculator, Python scripts, shell scripts, or standalone HTML files) ARE valid software/application requests. Do NOT reject them. Design their MVP scope mapping to a simple project layout (e.g., a single-file application or simple CLI module).
+- Single-file scripts, utilities, command-line interfaces, and lightweight applications (such as a Streamlit calculator, Python scripts, shell scripts, or standalone HTML files) ARE valid software/application requests. Design their MVP scope mapping to a simple project layout (e.g., a single-file application or simple CLI module).
 - Auto-expand brief prompts by introducing a standard MVP functional backlog based on industry conventions (e.g., tasks management for a to-do list, simple arithmetic for a calculator).
 - Do not invent extraneous features that deviate from the core request.
 - Do not invent features.
@@ -63,6 +63,12 @@ Example Canonical JSON Structure (Follow this strictly when not rejecting):
     "debugger": "Instruction for debugger",
     "security": "Instruction for security"
   }
+}
+{
+  "contextType": "validationError",
+  "status": "Rejected",
+  "reason": "Describe reason here...",
+  "message": "Describe message here..."
 }`;
 
 export const schema = {

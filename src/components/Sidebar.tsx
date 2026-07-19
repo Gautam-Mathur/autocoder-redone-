@@ -95,7 +95,7 @@ export default function Sidebar() {
           <BookOpen className="w-4 h-4" /> Documentation
         </Link>
         <Link
-          href="/settings"
+          href="/support"
           className="text-slate-400 flex items-center gap-3 p-3 text-xs font-semibold hover:bg-slate-800/50 hover:text-on-surface transition-colors rounded"
         >
           <HelpCircle className="w-4 h-4" /> Support

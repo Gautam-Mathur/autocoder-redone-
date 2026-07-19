@@ -21,10 +21,60 @@ import {
   HelpCircle,
   Cpu,
   ChevronRight,
+  ChevronDown,
+  FolderOpen,
+  Download,
   Gavel,
   Terminal as TerminalIcon,
   CheckCircle
 } from 'lucide-react';
+
+interface FileNode {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  children?: FileNode[];
+}
+
+const buildFileTree = (fileList: string[]): FileNode => {
+  const root: FileNode = { name: 'Root', path: '', isDirectory: true, children: [] };
+  
+  fileList.forEach((file) => {
+    const parts = file.split('/');
+    let current = root;
+    
+    parts.forEach((part, index) => {
+      const isLast = index === parts.length - 1;
+      const partPath = parts.slice(0, index + 1).join('/');
+      
+      let child = current.children?.find((c) => c.name === part);
+      if (!child) {
+        child = {
+          name: part,
+          path: partPath,
+          isDirectory: !isLast,
+          children: isLast ? undefined : [],
+        };
+        current.children?.push(child);
+      }
+      current = child;
+    });
+  });
+
+  const sortTree = (node: FileNode) => {
+    if (node.children) {
+      node.children.sort((a, b) => {
+        if (a.isDirectory && !b.isDirectory) return -1;
+        if (!a.isDirectory && b.isDirectory) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      node.children.forEach(sortTree);
+    }
+  };
+
+  sortTree(root);
+  return root;
+};
 
 export default function WorkspaceContent() {
   const router = useRouter();
@@ -36,6 +86,7 @@ export default function WorkspaceContent() {
     ollamaConnected,
     activeId,
     setActiveId,
+    activeTitle,
     setActiveTitle,
     logs,
     setLogs,
@@ -47,7 +98,7 @@ export default function WorkspaceContent() {
     setPipelineStatus
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'flowchart' | 'code' | 'preview' | 'telemetry'>('flowchart');
+  const [activeTab, setActiveTab] = useState<'flowchart' | 'code' | 'preview'>('flowchart');
   const [promptText, setPromptText] = useState(initialPrompt);
 
   // DB entities/blueprints loaded after compilation
@@ -59,6 +110,7 @@ export default function WorkspaceContent() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>('// Select a file to view content');
   const [agentOutputs, setAgentOutputs] = useState<Record<string, any>>({});
+  const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
 
   // Clarification state
   const [clarificationQuestions, setClarificationQuestions] = useState<string[]>([]);
@@ -119,6 +171,31 @@ export default function WorkspaceContent() {
           const mappedLogs: LogMessage[] = data.history.map((h: any) => {
             let type = 'AGENT_LOG';
             const logMsg = h.logs || '';
+            
+            if (logMsg.trim().startsWith('{') && logMsg.includes('"telemetryType":"rich_step_log"')) {
+              try {
+                const parsed = JSON.parse(logMsg);
+                const step = parsed.executionMemory?.stage || h.stage;
+                const status = parsed.executionMemory?.status || h.status;
+                const attempt = parsed.orchestration?.attempt || 1;
+                const duration = parsed.orchestration?.durationMs || 0;
+                
+                let summaryMsg = `[Rich Log] Agent ${step} ${status === 'Success' ? 'completed successfully' : 'failed'} in ${duration}ms (Attempt ${attempt}/3).`;
+                if (parsed.orchestration?.errorMessage) {
+                  summaryMsg += ` Error: ${parsed.orchestration.errorMessage}`;
+                }
+                return {
+                  type: status === 'Success' ? 'AGENT_COMPLETE' : 'PIPELINE_ERROR',
+                  agent: step,
+                  message: summaryMsg,
+                  timestamp: new Date(h.createdAt).toLocaleTimeString(),
+                  data: parsed
+                };
+              } catch (e) {
+                // fallback
+              }
+            }
+
             if (h.status === 'Success' && (logMsg.includes('finished successfully!') || logMsg.includes('completed successfully!') || logMsg.includes('completed successfully'))) {
               type = 'AGENT_COMPLETE';
             } else if (h.status === 'Failed') {
@@ -191,10 +268,11 @@ export default function WorkspaceContent() {
 
     if (archOut) {
       const json = JSON.parse(archOut.validatedJson);
-      setModules(json.modules || []);
+      const modulesList = Array.isArray(json.modules) ? json.modules : [];
+      setModules(modulesList);
       // Collate files list
       const filePaths: string[] = [];
-      json.modules.forEach((mod: any) => {
+      modulesList.forEach((mod: any) => {
         const collect = (arr: any) => {
           if (Array.isArray(arr)) {
             arr.forEach((f: any) => {
@@ -421,6 +499,82 @@ export default function WorkspaceContent() {
     return String(f);
   };
 
+  const getFileIcon = (fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'ts':
+      case 'tsx':
+        return <FileCode className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />;
+      case 'js':
+      case 'jsx':
+        return <FileCode className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />;
+      case 'json':
+        return <Settings className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />;
+      case 'html':
+        return <FileCode className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" />;
+      case 'css':
+        return <FileCode className="w-3.5 h-3.5 text-pink-400 flex-shrink-0" />;
+      default:
+        return <FileCode className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />;
+    }
+  };
+
+  const toggleDir = (dirPath: string) => {
+    setExpandedDirs((prev) => ({
+      ...prev,
+      [dirPath]: !prev[dirPath],
+    }));
+  };
+
+  const renderFileNode = (node: FileNode, depth = 0): React.ReactNode => {
+    if (node.isDirectory) {
+      const isExpanded = !!expandedDirs[node.path];
+      return (
+        <div key={node.path} className="flex flex-col">
+          <button
+            onClick={() => toggleDir(node.path)}
+            style={{ paddingLeft: `${depth * 12 + 8}px` }}
+            className="w-full py-1 pr-3 flex items-center gap-1.5 text-[11px] font-mono text-slate-350 hover:bg-slate-800/60 transition-colors text-left group select-none cursor-pointer"
+          >
+            {isExpanded ? (
+              <ChevronDown className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
+            ) : (
+              <ChevronRight className="w-3 h-3 text-slate-500 group-hover:text-slate-300 transition-colors" />
+            )}
+            {isExpanded ? (
+              <FolderOpen className="w-3.5 h-3.5 text-blue-400/80 flex-shrink-0" />
+            ) : (
+              <Folder className="w-3.5 h-3.5 text-blue-400/80 flex-shrink-0" />
+            )}
+            <span className="truncate group-hover:text-white transition-colors">{node.name}</span>
+          </button>
+          {isExpanded && node.children && (
+            <div className="flex flex-col">
+              {node.children.map((child) => renderFileNode(child, depth + 1))}
+            </div>
+          )}
+        </div>
+      );
+    } else {
+      const isSelected = selectedFile === node.path;
+      return (
+        <button
+          key={node.path}
+          onClick={() => handleSelectFile(node.path)}
+          style={{ paddingLeft: `${depth * 12 + 20}px` }}
+          className={`w-full py-1 pr-3 flex items-center gap-1.5 text-[11px] font-mono hover:bg-slate-800/60 transition-colors text-left group cursor-pointer ${
+            isSelected ? 'bg-slate-800 text-electric-indigo font-semibold border-r-2 border-electric-indigo' : 'text-slate-400'
+          }`}
+        >
+          {getFileIcon(node.name)}
+          <span className={`truncate group-hover:text-slate-200 transition-colors ${isSelected ? 'text-electric-indigo' : ''}`}>
+            {node.name}
+          </span>
+        </button>
+      );
+    }
+  };
+
   // Select file in tree
   const handleSelectFile = async (filepath: any) => {
     const pathStr = normalizeFilePath(filepath);
@@ -639,7 +793,7 @@ export default function WorkspaceContent() {
               <div className="text-[10px] space-y-1 mt-1">
                 <div className="text-red-400 font-bold">Defects Identified:</div>
                 <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {data.testReport.defects.map((def: any, i: number) => (
+                  {data.testReport?.defects?.map((def: any, i: number) => (
                     <div key={i} className="bg-slate-950 p-1.5 rounded border border-red-950 text-red-300">
                       <strong>{def.id}:</strong> {def.description}
                     </div>
@@ -665,7 +819,7 @@ export default function WorkspaceContent() {
             </div>
             {data.debugReport?.issues?.length > 0 && (
               <div className="text-[10px] space-y-1 max-h-32 overflow-y-auto mt-1">
-                {data.debugReport.issues.map((iss: any, i: number) => (
+                {data.debugReport?.issues?.map((iss: any, i: number) => (
                   <div key={i} className="bg-slate-950 p-1.5 rounded border border-slate-800">
                     <div className="text-rose-300 font-bold">Fix for {iss.testerDefectId}:</div>
                     <div className="text-slate-400 mt-0.5">{iss.rootCause}</div>
@@ -689,7 +843,7 @@ export default function WorkspaceContent() {
             </div>
             {data.securityReport?.issues?.length > 0 ? (
               <div className="text-[10px] space-y-1 mt-1 max-h-32 overflow-y-auto">
-                {data.securityReport.issues.map((iss: any, i: number) => (
+                {data.securityReport?.issues?.map((iss: any, i: number) => (
                   <div key={i} className="bg-slate-955 p-1.5 rounded border border-slate-800">
                     <span className="text-teal-300 font-bold">{iss.category}</span> - <span className="text-slate-400">{iss.description}</span>
                   </div>
@@ -713,7 +867,7 @@ export default function WorkspaceContent() {
             </div>
             {data.annotations?.length > 0 && (
               <div className="text-[10px] space-y-1 mt-1 max-h-32 overflow-y-auto">
-                {data.annotations.map((ann: any, i: number) => (
+                {data.annotations?.map((ann: any, i: number) => (
                   <div key={i} className="bg-slate-950 p-1.5 rounded border border-slate-800">
                     <span className={`font-bold uppercase text-[7px] px-1 rounded mr-1 ${
                       ann.severity === 'error' ? 'bg-red-950 text-red-400 border border-red-900' :
@@ -744,10 +898,10 @@ export default function WorkspaceContent() {
   };
 
   return (
-    <main className="flex-1 flex flex-col lg:flex-row bg-slate-950 overflow-hidden relative h-full">
+    <main className="flex-1 flex flex-col lg:flex-row bg-slate-950 overflow-y-auto lg:overflow-hidden relative h-auto lg:h-full">
       
       {/* Left Pane: Compiler Console & Controls (40%) */}
-      <section className="w-full lg:w-[40%] flex flex-col border-r border-slate-700 bg-slate-900 overflow-hidden h-full">
+      <section className="w-full lg:w-[40%] flex flex-col border-r border-slate-700 bg-slate-900 overflow-hidden h-[500px] lg:h-full">
         {/* Panel Header */}
         <div className="p-3 border-b border-slate-700 flex justify-between items-center bg-slate-900">
           <div className="flex items-center gap-2">
@@ -833,7 +987,7 @@ export default function WorkspaceContent() {
       </section>
 
       {/* Right Pane: Multi-Tab Workspace (60%) */}
-      <section className="w-full lg:w-[60%] flex flex-col bg-slate-900 relative border-l border-slate-700 h-full">
+      <section className="w-full lg:w-[60%] flex flex-col bg-slate-900 relative border-l border-slate-700 h-[600px] lg:h-full">
         {/* Tabs Headers */}
         <div className="flex border-b border-slate-700 bg-slate-900 overflow-x-auto no-scrollbar">
           <button
@@ -984,7 +1138,7 @@ export default function WorkspaceContent() {
                           <h5 className="text-xs font-bold text-on-surface">{mod.name}</h5>
                         </div>
                         <div className="flex flex-col gap-1 text-[10px] text-slate-400">
-                          {mod.files && mod.files.length > 0 && (
+                          {Array.isArray(mod.files) && mod.files.length > 0 && (
                             <div className="flex flex-col gap-1 mt-1">
                               <div className="flex flex-wrap gap-1">
                                 {mod.files.map((file: string, idx: number) => (
@@ -995,16 +1149,16 @@ export default function WorkspaceContent() {
                               </div>
                             </div>
                           )}
-                          {mod.pages && mod.pages.length > 0 && (
+                          {Array.isArray(mod.pages) && mod.pages.length > 0 && (
                             <div>Pages: <code className="text-slate-300">{mod.pages.join(', ')}</code></div>
                           )}
-                          {mod.components && mod.components.length > 0 && (
+                          {Array.isArray(mod.components) && mod.components.length > 0 && (
                             <div>Components: <code className="text-slate-300">{mod.components.join(', ')}</code></div>
                           )}
-                          {mod.services && mod.services.length > 0 && (
+                          {Array.isArray(mod.services) && mod.services.length > 0 && (
                             <div>Services: <code className="text-slate-300">{mod.services.join(', ')}</code></div>
                           )}
-                          {mod.apis && mod.apis.length > 0 && (
+                          {Array.isArray(mod.apis) && mod.apis.length > 0 && (
                             <div>APIs: <code className="text-slate-300">{mod.apis.join(', ')}</code></div>
                           )}
                         </div>
@@ -1023,7 +1177,7 @@ export default function WorkspaceContent() {
                           <div key={entity.name} className="bg-slate-950 border border-slate-800 rounded p-2 text-[10px]">
                             <div className="font-bold text-slate-300 mb-1">{entity.name}</div>
                             <div className="flex flex-col text-slate-500 gap-0.5">
-                              {entity.fields.map((f: any) => (
+                              {entity.fields?.map((f: any) => (
                                 <div key={f.name}>{f.name}: {f.type}</div>
                               ))}
                             </div>
@@ -1042,23 +1196,29 @@ export default function WorkspaceContent() {
             <div className="w-full h-full flex overflow-hidden">
               {/* File Tree Left sidebar */}
               <div className="w-48 bg-slate-900 border-r border-slate-700 flex flex-col overflow-y-auto flex-shrink-0">
-                <div className="p-2 border-b border-slate-800 text-[10px] font-mono font-bold text-slate-400">FILE EXPLORER</div>
+                <div className="p-2 border-b border-slate-805 text-[10px] font-mono font-bold text-slate-400 flex justify-between items-center select-none">
+                  <span>FILE EXPLORER</span>
+                  {files.length > 0 && (
+                    <a
+                      href={`/api/conversations/${conversationId}/download`}
+                      download
+                      className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
+                      title="Download Project ZIP"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
                 {files.length === 0 ? (
                   <div className="p-4 text-[10px] text-slate-500">No files generated yet.</div>
                 ) : (
                   <div className="py-2 flex flex-col gap-0.5">
-                    {files.map((file) => (
-                      <button
-                        key={file}
-                        onClick={() => handleSelectFile(file)}
-                        className={`px-3 py-1.5 text-left text-[11px] font-mono flex items-center gap-2 hover:bg-slate-800 transition-colors ${
-                          selectedFile === file ? 'bg-slate-800 text-electric-indigo' : 'text-slate-300'
-                        }`}
-                      >
-                        <FileCode className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="truncate">{getFileBasename(file)}</span>
-                      </button>
-                    ))}
+                    {/* Workspace Root Folder Header */}
+                    <div className="px-3 py-1.5 text-[10px] font-mono font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-wide border-b border-slate-800 mb-1 select-none">
+                      <Database className="w-3 h-3 text-electric-indigo" />
+                      <span className="truncate">{activeTitle || 'project-root'}</span>
+                    </div>
+                    {buildFileTree(files).children?.map((child) => renderFileNode(child, 0))}
                   </div>
                 )}
               </div>
@@ -1120,6 +1280,8 @@ export default function WorkspaceContent() {
               )}
             </div>
           )}
+
+
 
         </div>
 
